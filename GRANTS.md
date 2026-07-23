@@ -1,0 +1,109 @@
+# Product Manager capability grants
+
+This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
+of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
+catalog was last verified against manifest version `1.0.0`.
+
+Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
+`CSweet.Agent.SDK` 0.6.0; manifest-audit tests reject names missing from that catalog.
+
+## How to read this catalog
+
+- **Required grants** are capabilities the installation asks C-Sweet for permission to invoke.
+- **Provided capabilities** are brokered operations this agent exposes to C-Sweet or another
+  authorized agent. They are not permissions granted to this installation.
+- `organization` scope restricts access to the organization containing the installation.
+- `user` scope restricts access to the current authorized user's data.
+- Event subscriptions and publications are transport contracts, not capability grants, and remain
+  documented in the manifest.
+
+## Required grants by service and feature
+
+### AI runtime
+
+| Grant | Scope | Feature |
+|---|---|---|
+| `platform.llm.chat-stream.v1` | organization | Generate streamed Product Manager responses. |
+
+### Business and operating context
+
+| Grant | Scope | Feature |
+|---|---|---|
+| `platform.business-profile.read.v1` | organization | Read the authoritative business and product context. |
+| `platform.business-profile.propose-update.v1` | organization | Propose sensitive or inferred business-profile changes for review. |
+| `platform.organization.snapshot.read.v1` | organization | Validate identity, manager, reporting lines, objectives, workstreams, roles, and available workers. |
+| `platform.business-pattern.search.v1` | organization | Find stage-appropriate product and team patterns. |
+| `platform.finance-profile.read.v1` | organization | Ground product-team recommendations in financial goals and controls. |
+| `platform.management-cycle.read.v1` | organization | Follow the configured management cadence. |
+
+### Memory
+
+| Grant | Scope | Feature |
+|---|---|---|
+| `memory.business.read.v1` | organization | Recall approved organization-level product and business context. |
+| `memory.business.propose.v1` | organization | Propose organization-level business memories. |
+| `memory.user.read.v1` | user | Recall approved context for the current user. |
+| `memory.user.propose.v1` | user | Propose memories for the current user. |
+
+### Manager communication
+
+| Grant | Scope | Feature |
+|---|---|---|
+| `communication.chat.create.v1` | organization | Open or reuse a direct conversation with the current managing employee. |
+| `communication.message.send.v1` | organization | Send an idempotent request for role direction and product information to that manager. |
+
+The manager is resolved from the authoritative organization snapshot and may be the CEO, Chief of
+Staff, another human employee, or another agent.
+
+### Chief of Staff coordination
+
+| Grant | Scope | Provider | Feature |
+|---|---|---|---|
+| `management.product-role-brief.v1` | organization | Chief of Staff | Request the structured mandate, outcomes, measures, constraints, decision rights, team context, and gaps. |
+| `management.product-plan.review.v1` | organization | Chief of Staff | Submit product strategy and product-team recommendations for company-level reconciliation. |
+| `management.product-escalation.v1` | organization | Chief of Staff | Route executive information gaps and decisions through the Chief's CEO workflow. |
+
+These capabilities supplement direct manager messaging only when the current manager is the Chief
+of Staff. Calls target that manager's exact installation and validate the reporting relationship.
+
+## Capabilities provided by the Product Manager
+
+### General agent and management services
+
+| Capability | Consumer | Feature |
+|---|---|---|
+| `assistant.converse.v1` | C-Sweet | Answer a product-scoped request. |
+| `assistant.summarize-activity.v1` | C-Sweet | Summarize product outcomes, evidence, roadmap progress, risks, and capacity. |
+| `assistant.plan-work.v1` | C-Sweet | Produce an outcome-oriented product plan. |
+| `management.check-in.v1` | C-Sweet management cycle | Return a product management status report. |
+| `agent.configuration.describe.v1` | C-Sweet | Describe configurable settings. |
+| `agent.configuration.update.v1` | C-Sweet | Validate and apply configurable settings. |
+
+### Product leadership services
+
+| Capability | Consumer | Feature |
+|---|---|---|
+| `product-management.plan.v1` | Chief of Staff | Produce a structured product and product-organization recommendation. |
+| `product-management.context.update.v1` | Chief of Staff | Accept an idempotent role or context refresh and report readiness. |
+
+## Deliberately excluded grants
+
+The Product Manager recommends product roles, reporting lines, and hiring order but does not receive:
+
+- `platform.hiring-recommendation.list.v1`
+- `platform.hiring-recommendation.upsert.v1`
+- `platform.hiring-workflow.stage.v1`
+- workforce search or workforce-plan proposal grants
+- approval proposal grants
+- finance-profile update grants
+
+Those company-wide organization, hiring, spending, and approval responsibilities remain with the
+Chief of Staff or another authorized managing employee.
+
+## Security boundary
+
+- The agent has no credential declarations and no web access.
+- Read, proposal, communication, and cross-agent capabilities are separate grants.
+- A recommendation does not imply approval, hiring, or execution.
+- Memory is supporting context and cannot override manager direction or current platform records.
+- Any manifest change must update this catalog and its manifest-version marker in the same change.

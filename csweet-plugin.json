@@ -1,0 +1,76 @@
+{
+  "manifestVersion": "1.0",
+  "kind": "agent",
+  "id": "com.csweet.product-manager",
+  "name": "C-Sweet Product Manager",
+  "version": "1.0.0",
+  "publisher": { "id": "com.csweet", "name": "C-Sweet" },
+  "runtime": {
+    "type": "dotnet-project",
+    "projectPath": "src/CSweet.Agents.ProductManager/CSweet.Agents.ProductManager.csproj",
+    "targetFramework": "net10.0",
+    "defaultActivationMode": "AlwaysOn",
+    "supportsMultipleInstallations": true,
+    "maximumConcurrentJobs": 20
+  },
+  "protocol": { "minimumVersion": "1.0", "maximumVersion": "1.x" },
+  "provides": [
+    { "name": "assistant.converse.v1" },
+    { "name": "assistant.summarize-activity.v1" },
+    { "name": "assistant.plan-work.v1" },
+    { "name": "management.check-in.v1" },
+    { "name": "product-management.plan.v1" },
+    { "name": "product-management.context.update.v1" },
+    { "name": "agent.configuration.describe.v1" },
+    { "name": "agent.configuration.update.v1" }
+  ],
+  "requires": [
+    { "name": "platform.llm.chat-stream.v1", "scope": "organization", "purpose": "Generate Product Manager responses" },
+    { "name": "platform.business-profile.read.v1", "scope": "organization", "purpose": "Ground advice in the authoritative business profile" },
+    { "name": "platform.business-profile.propose-update.v1", "scope": "organization", "purpose": "Propose sensitive or inferred business profile changes" },
+    { "name": "platform.organization.snapshot.read.v1", "scope": "organization", "purpose": "Inspect reporting lines, workstreams, roles, and available workers" },
+    { "name": "platform.business-pattern.search.v1", "scope": "organization", "purpose": "Find stage-appropriate operating patterns" },
+    { "name": "platform.finance-profile.read.v1", "scope": "organization", "purpose": "Ground staffing advice in financial goals and controls" },
+    { "name": "platform.management-cycle.read.v1", "scope": "organization", "purpose": "Follow the configured management cadence" },
+    { "name": "memory.business.read.v1", "scope": "organization", "purpose": "Recall approved business context" },
+    { "name": "memory.business.propose.v1", "scope": "organization", "purpose": "Propose business memories" },
+    { "name": "memory.user.read.v1", "scope": "user", "purpose": "Recall approved user context" },
+    { "name": "memory.user.propose.v1", "scope": "user", "purpose": "Propose user memories" },
+    { "name": "communication.chat.create.v1", "scope": "organization", "purpose": "Open or reuse a direct conversation with the Product Manager's managing employee" },
+    { "name": "communication.message.send.v1", "scope": "organization", "purpose": "Request role direction and product information from the Product Manager's managing employee" },
+    { "name": "management.product-role-brief.v1", "scope": "organization", "purpose": "Request an authoritative role brief from the active Chief of Staff" },
+    { "name": "management.product-plan.review.v1", "scope": "organization", "purpose": "Submit product and product-team recommendations to the Chief of Staff" },
+    { "name": "management.product-escalation.v1", "scope": "organization", "purpose": "Route executive information gaps and decisions through the Chief of Staff" }
+  ],
+  "events": {
+    "subscribes": [
+      "com.csweet.agent.onboarded.v1",
+      "com.csweet.user.message.received.v1",
+      "com.csweet.action.completed.v1",
+      "com.csweet.action.rejected.v1",
+      "com.csweet.approval.completed.v1",
+      "com.csweet.management.review.due.v1",
+      "com.csweet.management.status.reported.v1",
+      "com.csweet.management.resource-need.reported.v1",
+      "com.csweet.workstream.changed.v1",
+      "com.csweet.workforce-plan.decided.v1"
+    ],
+    "publishes": [
+      "com.csweet.assistant.response.created.v1",
+      "com.csweet.assistant.response.chunk.v1",
+      "com.csweet.assistant.progress.updated.v1",
+      "com.csweet.action.proposed.v1",
+      "com.csweet.management.status.reported.v1",
+      "com.csweet.management.resource-need.reported.v1"
+    ]
+  },
+  "configuration": [
+    { "key": "llmProviderId", "type": "provider", "label": "LLM provider", "required": true, "secret": false },
+    { "key": "llmModel", "type": "model", "label": "Model", "required": true, "secret": false }
+  ],
+  "credentials": [],
+  "webAccess": { "mode": "None", "rules": [] },
+  "ui": [
+    { "kind": "form", "id": "product-manager-settings", "title": "Product Manager settings", "capability": "agent.configuration.update.v1" }
+  ]
+}
