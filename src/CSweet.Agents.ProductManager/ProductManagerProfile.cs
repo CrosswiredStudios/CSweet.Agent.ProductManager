@@ -5,7 +5,7 @@ namespace CSweet.Agents.ProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.0.0";
+    public const string Version = "1.0.1";
     public const string DefaultDisplayName = "C-Sweet Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
