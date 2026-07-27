@@ -37,8 +37,11 @@
     { "name": "memory.business.propose.v1", "scope": "organization", "purpose": "Propose business memories" },
     { "name": "memory.user.read.v1", "scope": "user", "purpose": "Recall approved user context" },
     { "name": "memory.user.propose.v1", "scope": "user", "purpose": "Propose user memories" },
+    { "name": "communication.chat.read.v1", "scope": "organization", "purpose": "Read the broker-authorized manager conversation before requesting a resource change" },
     { "name": "communication.chat.create.v1", "scope": "organization", "purpose": "Open or reuse a direct conversation with the Product Manager's managing employee" },
     { "name": "communication.message.send.v1", "scope": "organization", "purpose": "Request role direction and product information from the Product Manager's managing employee" },
+    { "name": "platform.management.resource-change.propose.v1", "scope": "organization", "purpose": "Propose one atomic desired-team snapshot to the current manager" },
+    { "name": "platform.management.resource-change.read.v1", "scope": "organization", "purpose": "Read the Product Manager's resource-change requests and decisions" },
     { "name": "management.product-role-brief.v1", "scope": "organization", "purpose": "Request an authoritative role brief from the active Chief of Staff" },
     { "name": "management.product-plan.review.v1", "scope": "organization", "purpose": "Submit product and product-team recommendations to the Chief of Staff" },
     { "name": "management.product-escalation.v1", "scope": "organization", "purpose": "Route executive information gaps and decisions through the Chief of Staff" }
@@ -53,6 +56,7 @@
       "com.csweet.management.review.due.v1",
       "com.csweet.management.status.reported.v1",
       "com.csweet.management.resource-need.reported.v1",
+      "com.csweet.management.resource-change.decided.v1",
       "com.csweet.workstream.changed.v1",
       "com.csweet.workforce-plan.decided.v1"
     ]

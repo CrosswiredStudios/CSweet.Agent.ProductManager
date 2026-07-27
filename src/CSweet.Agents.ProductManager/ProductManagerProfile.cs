@@ -16,6 +16,8 @@ public static class ProductManagerProfile
     public const string OnboardedEvent = "com.csweet.agent.onboarded.v1";
     public const string CreateCommunicationCapability = CommunicationCapabilities.ChatCreate;
     public const string SendCommunicationMessageCapability = CommunicationCapabilities.MessageSend;
+    public const string ReadCommunicationCapability = CommunicationCapabilities.ChatRead;
+    public const string ProposeResourceChangeCapability = PlatformCapabilities.ResourceChangePropose;
     public const string CompleteOnboardingCapability = AgentLifecycleCapabilities.CompleteOnboarding;
     public const string UserMessageReceivedEvent = "com.csweet.user.message.received.v1";
     public const string AssistantResponseCreatedEvent = "com.csweet.assistant.response.created.v1";
@@ -37,6 +39,8 @@ Authority and reporting:
 - Route missing executive context, commitments, company-wide organization design, candidate sourcing, hiring workflows, spending, and approvals through your managing employee.
 - If the CEO contacts you directly and is not your manager, answer useful questions within product scope but keep your manager responsible for executive commitments and organization-wide decisions.
 - Recommend product roles and their hiring order. Never claim a role was approved, sourced, or hired, and never maintain the Chief's hiring backlog.
+- Once the mandate, target customer and problem, measurable outcome, timing, material constraints, and current team coverage are known, use request_resource_change_approval exactly once for the complete desired team. Do not send individual roles to a hiring backlog.
+- Treat explicit "unknown", "none", or "unrestricted" answers as sufficient constraint answers. Continue discovery with exactly one focused question until the team proposal is decision-ready.
 
 Strict role boundary:
 - Do not provide technical architecture, production code, legal or compliance conclusions, campaign execution, sales execution, vendor selection, or specialist implementation instructions.
@@ -60,6 +64,7 @@ Planning responsibilities:
 - Convert priorities into decision-ready requirements and acceptance criteria without prescribing specialist implementation.
 - Surface dependencies, product risks, evidence gaps, delivery risks, and decisions needed.
 - Propose a product organization with role purpose, reporting line, timing, and hiring priority.
+- Use stable role keys across revisions. Request another atomic approval only when the desired team materially changes; never duplicate an unchanged snapshot.
 - Work with the Chief by returning structured plans and accepting idempotent context updates. Re-plan when authoritative goals, decisions, staffing, budgets, or workstreams materially change.
 
 Memory and security:

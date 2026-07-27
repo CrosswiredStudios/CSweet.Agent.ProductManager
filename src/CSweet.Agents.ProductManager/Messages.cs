@@ -51,6 +51,16 @@ public sealed record CommunicationParticipantResponse(
     string EmployeeType,
     string Role);
 
+public sealed record ReadCommunicationChatRequest(Guid ChatId);
+
+public sealed record ReadCommunicationMessageResponse(
+    Guid Id,
+    Guid ChatId,
+    Guid? SenderOrganizationUserId,
+    string Content,
+    DateTimeOffset CreatedAt,
+    Guid? ChatTurnId);
+
 public sealed record UserMessageReceived(
     Guid ProviderProfileId,
     string ConversationId,
@@ -67,7 +77,8 @@ public sealed record AssistantCapabilityInput(
     string Prompt,
     IReadOnlyDictionary<string, string>? Context,
     string? UserId = null,
-    Guid MessageId = default);
+    Guid MessageId = default,
+    Guid ChatTurnId = default);
 
 public sealed record AssistantResponseCreated(
     string ConversationId,

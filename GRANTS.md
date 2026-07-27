@@ -56,6 +56,9 @@ policy at runtime.
 |---|---|---|
 | `communication.chat.create.v1` | organization | Open or reuse a direct conversation with the current managing employee. |
 | `communication.message.send.v1` | organization | Send an idempotent request for role direction and product information to that manager. |
+| `communication.chat.read.v1` | organization | Verify and read the current manager conversation before proposing a team change. |
+| `platform.management.resource-change.propose.v1` | organization | Submit one auditable, atomic desired-team snapshot to the current manager. |
+| `platform.management.resource-change.read.v1` | organization | Read the Product Manager's pending and decided team snapshots. |
 
 The manager is resolved from the authoritative organization snapshot and may be the CEO, Chief of
 Staff, another human employee, or another agent.
