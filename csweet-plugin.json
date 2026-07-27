@@ -1,5 +1,5 @@
 {
-  "manifestVersion": "1.0",
+  "manifestVersion": "2.0",
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
@@ -13,18 +13,19 @@
     "supportsMultipleInstallations": true,
     "maximumConcurrentJobs": 20
   },
-  "protocol": { "minimumVersion": "1.0", "maximumVersion": "1.x" },
+  "protocol": { "minimumVersion": "2.0", "maximumVersion": "2.x" },
   "provides": [
-    { "name": "assistant.converse.v1" },
-    { "name": "assistant.summarize-activity.v1" },
-    { "name": "assistant.plan-work.v1" },
-    { "name": "management.check-in.v1" },
-    { "name": "product-management.plan.v1" },
-    { "name": "product-management.context.update.v1" },
-    { "name": "agent.configuration.describe.v1" },
-    { "name": "agent.configuration.update.v1" }
+    { "name": "assistant.converse.v1", "description": "Converse with the Product Manager.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+    { "name": "assistant.summarize-activity.v1", "description": "Summarize product activity.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+    { "name": "assistant.plan-work.v1", "description": "Plan product work.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+    { "name": "management.check-in.v1", "description": "Run a Product Manager check-in.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+    { "name": "product-management.plan.v1", "description": "Create a product-management plan.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+    { "name": "product-management.context.update.v1", "description": "Update Product Manager context.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 120, "idempotency": "work-item" },
+    { "name": "agent.configuration.describe.v1", "description": "Describe Product Manager configuration.", "inputSchema": { "type": "object", "additionalProperties": false }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 30, "idempotency": "work-item" },
+    { "name": "agent.configuration.update.v1", "description": "Update Product Manager configuration.", "inputSchema": { "type": "object", "additionalProperties": true }, "outputSchema": { "type": "object", "additionalProperties": true }, "executionTimeoutSeconds": 30, "idempotency": "work-item" }
   ],
   "requires": [
+    { "name": "platform.user-input.request.v1", "scope": "organization", "purpose": "Ask the owner a bounded structured question" },
     { "name": "platform.llm.chat-stream.v1", "scope": "organization", "purpose": "Generate Product Manager responses" },
     { "name": "platform.business-profile.read.v1", "scope": "organization", "purpose": "Ground advice in the authoritative business profile" },
     { "name": "platform.business-profile.propose-update.v1", "scope": "organization", "purpose": "Propose sensitive or inferred business profile changes" },
@@ -54,14 +55,6 @@
       "com.csweet.management.resource-need.reported.v1",
       "com.csweet.workstream.changed.v1",
       "com.csweet.workforce-plan.decided.v1"
-    ],
-    "publishes": [
-      "com.csweet.assistant.response.created.v1",
-      "com.csweet.assistant.response.chunk.v1",
-      "com.csweet.assistant.progress.updated.v1",
-      "com.csweet.action.proposed.v1",
-      "com.csweet.management.status.reported.v1",
-      "com.csweet.management.resource-need.reported.v1"
     ]
   },
   "configuration": [

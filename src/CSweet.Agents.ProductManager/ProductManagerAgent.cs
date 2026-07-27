@@ -1,8 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Net.Http;
-using CSweet.Agent.Contracts.Grpc;
+using System.Text.Json;
 using CSweet.Agent.SDK;
-using Google.Protobuf;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
@@ -96,7 +95,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
     }
 
     public override async Task HandleEventAsync(
-        DeliveredEvent message,
+        AgentEventEnvelope message,
         AgentRuntimeContext context,
         CancellationToken cancellationToken)
     {
@@ -117,7 +116,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             return;
         }
 
-        var incoming = DeserializePayload<UserMessageReceived>(message.Payload);
+        var incoming = DeserializePayload<UserMessageReceived>(message.Data);
 
         if (incoming is null ||
             incoming.ProviderProfileId == Guid.Empty ||
@@ -274,19 +273,6 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             sequence,
             builder.Length);
 
-        await context.Broker.PublishEventAsync(
-            new PublishEvent
-            {
-                EventType = ProductManagerProfile.AssistantResponseCreatedEvent,
-                SchemaVersion = "1",
-                Subject = $"conversation/{conversationId}",
-                ContentType = "application/json",
-                Payload = ByteString.CopyFrom(SerializePayload(
-                    new AssistantResponseCreated(conversationId, builder.ToString(), ProposedActions: [], DateTimeOffset.UtcNow)))
-            },
-            message.EventId,
-            cancellationToken);
-
         await WriteRunLogAsync(
             incoming.ProviderProfileId,
             incoming.Message,
@@ -299,42 +285,42 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             cancellationToken);
     }
 
-    protected override async Task<AgentCapabilityExecutionResult> ExecuteCapabilityCoreAsync(
-        CapabilityRequest request,
+    protected override async Task<AgentWorkResult> ExecuteCapabilityCoreAsync(
+        AgentCapabilityRequest request,
         AgentRuntimeContext context,
         CancellationToken cancellationToken)
     {
         if (!IsSupportedCapability(request.Capability))
         {
-            return AgentCapabilityExecutionResult.Failure(
+            return AgentWorkResult.Failure(
                 $"Capability '{request.Capability}' is not supported by the Product Manager.");
         }
 
         if (request.Capability == ProductManagerProfile.ManagementCheckInCapability)
         {
             var checkIn = DeserializePayload<ManagementCheckInRequest>(request.Payload);
-            if (checkIn is null) return AgentCapabilityExecutionResult.Failure("The management check-in input is invalid.");
+            if (checkIn is null) return AgentWorkResult.Failure("The management check-in input is invalid.");
             var operatingContext = await _orchestrator.AssembleContextAsync(context, cancellationToken);
-            return AgentCapabilityExecutionResult.Success(SerializePayload(ProductManagerOrchestrator.BuildManagementReport(checkIn, operatingContext)));
+            return new AgentWorkResult(true, SerializePayload(ProductManagerOrchestrator.BuildManagementReport(checkIn, operatingContext)));
         }
 
         if (request.Capability == ProductManagementCapabilities.Plan)
         {
             var planRequest = DeserializePayload<ProductPlanRequest>(request.Payload);
             if (planRequest is null)
-                return AgentCapabilityExecutionResult.Failure("The product plan input is invalid.");
+                return AgentWorkResult.Failure("The product plan input is invalid.");
             if (!await IsAuthorizedChiefRequestAsync(
                     request.RequestingAgentId,
                     planRequest.RoleBrief,
                     context,
                     cancellationToken))
-                return AgentCapabilityExecutionResult.Failure("Only the active reporting Chief of Staff may request a product plan.");
+                return AgentWorkResult.Failure("Only the active reporting Chief of Staff may request a product plan.");
 
             var operatingContext = await _orchestrator.AssembleContextAsync(
                 context,
                 cancellationToken,
                 planRequest.RoleBrief);
-            return AgentCapabilityExecutionResult.Success(SerializePayload(
+            return new AgentWorkResult(true, SerializePayload(
                 ProductManagerOrchestrator.BuildProductPlan(planRequest, operatingContext)));
         }
 
@@ -342,15 +328,15 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         {
             var update = DeserializePayload<ProductContextUpdateRequest>(request.Payload);
             if (update is null)
-                return AgentCapabilityExecutionResult.Failure("The product context update is invalid.");
+                return AgentWorkResult.Failure("The product context update is invalid.");
             if (!await IsAuthorizedChiefRequestAsync(
                     request.RequestingAgentId,
                     update.RoleBrief,
                     context,
                     cancellationToken))
-                return AgentCapabilityExecutionResult.Failure("Only the active reporting Chief of Staff may update product context.");
+                return AgentWorkResult.Failure("Only the active reporting Chief of Staff may update product context.");
 
-            return AgentCapabilityExecutionResult.Success(SerializePayload(
+            return new AgentWorkResult(true, SerializePayload(
                 ProductManagerOrchestrator.BuildContextUpdateResponse(update)));
         }
 
@@ -360,7 +346,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             input.ProviderProfileId == Guid.Empty ||
             string.IsNullOrWhiteSpace(input.Prompt))
         {
-            return AgentCapabilityExecutionResult.Failure(
+            return AgentWorkResult.Failure(
                 "The capability input is missing a provider profile or prompt.");
         }
 
@@ -372,7 +358,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 context,
                 cancellationToken);
 
-            return AgentCapabilityExecutionResult.Success(SerializePayload(response));
+            return new AgentWorkResult(true, SerializePayload(response));
         }
         catch (Exception exception)
         {
@@ -381,13 +367,13 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 "Product Manager failed capability {Capability}.",
                 request.Capability);
 
-            return AgentCapabilityExecutionResult.Failure(
+            return AgentWorkResult.Failure(
                 "The Product Manager could not complete the request.");
         }
     }
 
     private async Task HandleOnboardedAsync(
-        DeliveredEvent message,
+        AgentEventEnvelope message,
         AgentRuntimeContext context,
         CancellationToken cancellationToken)
     {
@@ -461,18 +447,10 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             }
         }
 
-        var acknowledgement = await context.Broker.InvokeCapabilityAsync(
-            new RequestCapability
-            {
-                RequestId = Guid.NewGuid().ToString("N"),
-                Capability = ProductManagerProfile.CompleteOnboardingCapability,
-                ContentType = "application/json",
-                Payload = ByteString.CopyFrom(SerializePayload(new CompleteAgentOnboardingRequest(eventId)))
-            },
-            message.EventId,
+        _ = await context.Platform.InvokeAsync<CompleteAgentOnboardingRequest, JsonElement>(
+            ProductManagerProfile.CompleteOnboardingCapability,
+            new CompleteAgentOnboardingRequest(eventId),
             cancellationToken);
-        if (!acknowledgement.Succeeded)
-            throw new InvalidOperationException($"The Product Manager could not acknowledge onboarding: {acknowledgement.Error}");
 
         _logger.LogInformation(
             "Product Manager completed onboarding event {EventId} after messaging manager {ManagerId} in conversation {ConversationId}.",
@@ -487,25 +465,15 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var result = await context.Broker.InvokeCapabilityAsync(
-            new RequestCapability
-            {
-                RequestId = Guid.NewGuid().ToString("N"),
-                Capability = ProductManagerProfile.CreateCommunicationCapability,
-                ContentType = "application/json",
-                Payload = ByteString.CopyFrom(SerializePayload(new CreateCommunicationChatRequest(
-                    null,
-                    "Private Product Manager reporting conversation.",
-                    true,
-                    true,
-                    [manager.Id])))
-            },
-            correlationId,
+        var response = await context.Platform.InvokeAsync<CreateCommunicationChatRequest, CommunicationHubActionResponse>(
+            ProductManagerProfile.CreateCommunicationCapability,
+            new CreateCommunicationChatRequest(
+                null,
+                "Private Product Manager reporting conversation.",
+                true,
+                true,
+                [manager.Id]),
             cancellationToken);
-        if (!result.Succeeded)
-            throw new InvalidOperationException($"The Product Manager could not open a direct conversation with its manager: {result.Error}");
-        var response = DeserializePayload<CommunicationHubActionResponse>(result.Payload)
-            ?? throw new InvalidOperationException("The manager conversation capability returned an invalid response.");
         if (!response.Succeeded || response.Chat is null)
             throw new InvalidOperationException(
                 $"The Product Manager could not open a direct conversation with its manager: {response.Message}");
@@ -521,23 +489,15 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         string correlationId,
         CancellationToken cancellationToken)
     {
-        var result = await context.Broker.InvokeCapabilityAsync(
-            new RequestCapability
-            {
-                RequestId = Guid.NewGuid().ToString("N"),
-                Capability = ProductManagerProfile.SendCommunicationMessageCapability,
-                ContentType = "application/json",
-                Payload = ByteString.CopyFrom(SerializePayload(new SendCommunicationMessageRequest(
-                    managerConversationId,
-                    ProductManagerOrchestrator.BuildManagerDirectionRequest(
-                        operatingContext,
-                        manager.DisplayName),
-                    $"product-manager-onboarding-direction:{eventId:D}")))
-            },
-            correlationId,
+        _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            ProductManagerProfile.SendCommunicationMessageCapability,
+            new SendCommunicationMessageRequest(
+                managerConversationId,
+                ProductManagerOrchestrator.BuildManagerDirectionRequest(
+                    operatingContext,
+                    manager.DisplayName),
+                $"product-manager-onboarding-direction:{eventId:D}"),
             cancellationToken);
-        if (!result.Succeeded)
-            throw new InvalidOperationException($"The Product Manager could not request direction from its manager: {result.Error}");
     }
 
     private static bool IsChiefManager(
@@ -635,21 +595,12 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         CancellationToken cancellationToken)
         where TResponse : class
     {
-        var result = await context.Broker.InvokeCapabilityAsync(
-            new RequestCapability
-            {
-                RequestId = Guid.NewGuid().ToString("N"),
-                Capability = capability,
-                TargetAgentId = $"installation:{targetInstallationId:D}",
-                ContentType = "application/json",
-                Payload = ByteString.CopyFrom(SerializePayload(payload))
-            },
-            correlationId,
+        _ = targetInstallationId;
+        _ = correlationId;
+        return await context.Platform.InvokeAsync<TRequest, TResponse>(
+            capability,
+            payload,
             cancellationToken);
-        if (!result.Succeeded)
-            throw new InvalidOperationException($"The Product Manager could not invoke {capability}: {result.Error}");
-        return DeserializePayload<TResponse>(result.Payload)
-            ?? throw new InvalidOperationException($"{capability} returned an invalid response.");
     }
 
     private static Task PublishChunkAsync(
@@ -658,17 +609,8 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         AssistantResponseChunk chunk,
         CancellationToken cancellationToken)
     {
-        return context.Broker.PublishEventAsync(
-            new PublishEvent
-            {
-                EventType = ProductManagerProfile.AssistantResponseChunkEvent,
-                SchemaVersion = "1",
-                Subject = $"conversation/{chunk.ConversationId}",
-                ContentType = "application/json",
-                Payload = ByteString.CopyFrom(SerializePayload(chunk))
-            },
-            correlationId,
-            cancellationToken);
+        _ = correlationId;
+        return context.ReportProgressAsync(chunk, cancellationToken);
     }
 
     private static Task PublishAgentErrorAsync(
@@ -735,7 +677,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             input.ProviderProfileId,
             Settings.GetString("llmModel"));
         var chatClient = _llmClientFactory is null
-            ? new BrokerLlmClient(runtimeContext.Broker, selection)
+            ? new PlatformChatClient(runtimeContext.Platform, selection)
             : await _llmClientFactory.CreateChatClientAsync(selection, cancellationToken);
 
         operatingContext ??= await _orchestrator.AssembleContextAsync(runtimeContext, cancellationToken);
@@ -752,7 +694,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             StoreAssistantMessages = true,
             FailOpen = true
         });
-        var memoryStore = new CSweetBrokerMemoryStore(runtimeContext.Broker);
+        var memoryStore = new CSweetPlatformMemoryStore(runtimeContext.Platform);
         var memoryEngine = new MemoryEngine(
             memoryStore,
             memoryOptions,
@@ -763,14 +705,9 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             new SessionStateMemoryPartitionResolver(memoryOptions),
             memoryOptions);
 
-        var grantedPlatformCapabilities = runtimeContext.Broker.Registration?
-            .GrantedRequestedCapabilities
-            .ToHashSet(StringComparer.Ordinal)
-            ?? new HashSet<string>(StringComparer.Ordinal);
-        var tools = PlatformToolAdapters.Create(
-            runtimeContext.Platform,
-            grantedPlatformCapabilities).ToList();
-        if (grantedPlatformCapabilities.Contains(ProductManagementCapabilities.Escalation))
+        var tools = (await runtimeContext.GetModelToolsAsync(cancellationToken)).ToList();
+        if (tools.Any(tool => tool is AIFunctionDeclaration function &&
+                            function.Name == "product_management_escalation"))
         {
             tools.Add(AIFunctionFactory.Create(
                 (string topic, string question, string whyItMatters, CancellationToken token) =>
@@ -951,7 +888,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                    x.EmployeeType.Equals("Agent", StringComparison.OrdinalIgnoreCase)) == true;
     }
 
-    private async Task HandleManagementReviewAsync(DeliveredEvent message, AgentRuntimeContext context, CancellationToken cancellationToken)
+    private async Task HandleManagementReviewAsync(AgentEventEnvelope message, AgentRuntimeContext context, CancellationToken cancellationToken)
     {
         var due = DeserializePayload<ManagementReviewDueEvent>(message.Payload);
         if (due is null) { _logger.LogWarning("Ignored malformed management review event {EventId}.", message.EventId); return; }
@@ -962,14 +899,10 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             RequestId = due.RequestId
         };
         var report = ProductManagerOrchestrator.BuildManagementReport(checkIn, operatingContext);
-        await context.Broker.PublishEventAsync(new PublishEvent
-        {
-            EventType = ManagementEvents.StatusReported,
-            SchemaVersion = "1",
-            Subject = $"management-cycle/{due.CycleId}",
-            ContentType = "application/json",
-            Payload = ByteString.CopyFrom(SerializePayload(report))
-        }, message.EventId, cancellationToken);
+        _ = await context.Platform.InvokeAsync<ManagementStatusReport, JsonElement>(
+            "platform.management.status-report.v1",
+            report,
+            cancellationToken);
     }
 
     private static Task WriteRunLogAsync(

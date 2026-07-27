@@ -2,20 +2,25 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against manifest version `1.0.0`.
+catalog was last verified against package version `1.0.0` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
-`CSweet.Agent.SDK` 0.6.0; manifest-audit tests reject names missing from that catalog.
+`CSweet.Agent.SDK` 1.0; manifest-audit tests reject names missing from that catalog.
 
 ## How to read this catalog
 
 - **Required grants** are capabilities the installation asks C-Sweet for permission to invoke.
-- **Provided capabilities** are brokered operations this agent exposes to C-Sweet or another
+- **Provided capabilities** are durable operations this agent exposes to C-Sweet or another
   authorized agent. They are not permissions granted to this installation.
 - `organization` scope restricts access to the organization containing the installation.
 - `user` scope restricts access to the current authorized user's data.
-- Event subscriptions and publications are transport contracts, not capability grants, and remain
-  documented in the manifest.
+- Event subscriptions are durable delivery contracts, not capability grants. Generic
+  event publication is not supported in protocol v2.
+
+This file is generated from the authoritative SDK capability catalog and the v2 manifest. Each
+provided descriptor's input/output schemas, timeout, and idempotency are defined in
+`csweet-plugin.json`; installation grants add scope, risk, approval, quota, and owning-service
+policy at runtime.
 
 ## Required grants by service and feature
 
