@@ -2,7 +2,7 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.0.0` and manifest protocol `2.0`.
+catalog was last verified against package version `1.0.2` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
 `CSweet.Agent.SDK` 1.0; manifest-audit tests reject names missing from that catalog.
@@ -57,6 +57,7 @@ policy at runtime.
 | `communication.chat.create.v1` | organization | Open or reuse a direct conversation with the current managing employee. |
 | `communication.message.send.v1` | organization | Send an idempotent request for role direction and product information to that manager. |
 | `communication.chat.read.v1` | organization | Verify and read the current manager conversation before proposing a team change. |
+| `agent.onboarding.complete.v1` | organization | Acknowledge this installation's durable onboarding event after its initial manager message is complete. |
 | `platform.management.resource-change.propose.v1` | organization | Submit one auditable, atomic desired-team snapshot to the current manager. |
 | `platform.management.resource-change.read.v1` | organization | Read the Product Manager's pending and decided team snapshots. |
 

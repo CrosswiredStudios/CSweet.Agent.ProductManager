@@ -28,6 +28,7 @@ public sealed class ProductManagerProfileTests
         Assert.DoesNotContain(PlatformCapabilities.HiringWorkflowStage, requires);
         Assert.Contains(ProductManagerProfile.CreateCommunicationCapability, requires);
         Assert.Contains(ProductManagerProfile.SendCommunicationMessageCapability, requires);
+        Assert.Contains(AgentLifecycleCapabilities.CompleteOnboarding, requires);
     }
 
     [Fact]

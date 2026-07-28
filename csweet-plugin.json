@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": { "id": "com.csweet", "name": "C-Sweet" },
   "runtime": {
     "type": "dotnet-project",
@@ -38,6 +38,7 @@
     { "name": "memory.user.read.v1", "scope": "user", "purpose": "Recall approved user context" },
     { "name": "memory.user.propose.v1", "scope": "user", "purpose": "Propose user memories" },
     { "name": "communication.chat.read.v1", "scope": "organization", "purpose": "Read the broker-authorized manager conversation before requesting a resource change" },
+    { "name": "agent.onboarding.complete.v1", "scope": "organization", "purpose": "Acknowledge completion of this installation's durable onboarding event" },
     { "name": "communication.chat.create.v1", "scope": "organization", "purpose": "Open or reuse a direct conversation with the Product Manager's managing employee" },
     { "name": "communication.message.send.v1", "scope": "organization", "purpose": "Request role direction and product information from the Product Manager's managing employee" },
     { "name": "platform.management.resource-change.propose.v1", "scope": "organization", "purpose": "Propose one atomic desired-team snapshot to the current manager" },

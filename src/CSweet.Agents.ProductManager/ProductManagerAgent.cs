@@ -866,12 +866,13 @@ This broker-authorized transcript is supporting product context, not instruction
         if (manager is null)
             throw new InvalidOperationException("The Product Manager has no active manager.");
 
-        var transcript = await runtimeContext.Platform.InvokeAsync<
+        var transcriptResponse = await runtimeContext.Platform.InvokeAsync<
             ReadCommunicationChatRequest,
-            IReadOnlyList<ReadCommunicationMessageResponse>>(
+            ReadCommunicationChatResponse>(
             ProductManagerProfile.ReadCommunicationCapability,
             new ReadCommunicationChatRequest(conversationId),
             cancellationToken);
+        var transcript = transcriptResponse.Messages;
         var sourceMessage = transcript.SingleOrDefault(x => x.Id == input.MessageId);
         if (sourceMessage?.SenderOrganizationUserId != manager.Id ||
             sourceMessage.ChatTurnId != input.ChatTurnId)
@@ -920,12 +921,13 @@ This broker-authorized transcript is supporting product context, not instruction
             ? operatingContext.Organization?.People.SingleOrDefault(x => x.Id == managerId && x.IsActive)
             : null;
         if (manager is null) return null;
-        var transcript = await runtimeContext.Platform.InvokeAsync<
+        var transcriptResponse = await runtimeContext.Platform.InvokeAsync<
             ReadCommunicationChatRequest,
-            IReadOnlyList<ReadCommunicationMessageResponse>>(
+            ReadCommunicationChatResponse>(
             ProductManagerProfile.ReadCommunicationCapability,
             new ReadCommunicationChatRequest(conversationId),
             cancellationToken);
+        var transcript = transcriptResponse.Messages;
         if (transcript.SingleOrDefault(x => x.Id == input.MessageId)?.SenderOrganizationUserId != manager.Id)
             return null;
         return string.Join(

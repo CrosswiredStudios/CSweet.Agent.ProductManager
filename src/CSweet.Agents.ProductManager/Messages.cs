@@ -53,6 +53,9 @@ public sealed record CommunicationParticipantResponse(
 
 public sealed record ReadCommunicationChatRequest(Guid ChatId);
 
+public sealed record ReadCommunicationChatResponse(
+    IReadOnlyList<ReadCommunicationMessageResponse> Messages);
+
 public sealed record ReadCommunicationMessageResponse(
     Guid Id,
     Guid ChatId,
