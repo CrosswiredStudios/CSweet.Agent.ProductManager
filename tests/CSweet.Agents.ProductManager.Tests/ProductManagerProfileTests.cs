@@ -74,8 +74,8 @@ public sealed class ProductManagerProfileTests
             "src",
             "CSweet.Agents.ProductManager",
             "CSweet.Agents.ProductManager.csproj"));
-        Assert.DoesNotContain("<ProjectReference", project, StringComparison.Ordinal);
-        Assert.Contains("CSweet.Agent.SDK\" Version=\"1.1.1", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.0.0", project, StringComparison.Ordinal);
+        Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
 
@@ -265,14 +265,14 @@ public sealed class ProductManagerProfileTests
         await agent.HandleEventAsync(
             new AgentEventEnvelope(
                 workItemId,
+                onboardingEventId,
                 ProductManagerProfile.OnboardedEvent,
                 JsonSerializer.SerializeToElement(new AgentOnboardedEvent(
                     organizationId,
                     productManagerId,
                     managerId,
                     conversationId,
-                    DateTimeOffset.UtcNow,
-                    onboardingEventId)),
+                    DateTimeOffset.UtcNow)),
                 DateTimeOffset.UtcNow,
                 Guid.NewGuid().ToString("N")),
             context,
@@ -435,6 +435,7 @@ public sealed class ProductManagerProfileTests
         await agent.HandleResourceChangeDecisionAsync(
             new AgentEventEnvelope(
                 Guid.NewGuid(),
+                Guid.NewGuid(),
                 ManagementEvents.ResourceChangeDecided,
                 JsonSerializer.SerializeToElement(new ResourceChangeDecisionEvent(
                     requestId,
@@ -511,6 +512,7 @@ public sealed class ProductManagerProfileTests
         await agent.HandleResourceChangeDecisionAsync(
             new AgentEventEnvelope(
                 Guid.NewGuid(),
+                Guid.NewGuid(),
                 ManagementEvents.ResourceChangeDecided,
                 JsonSerializer.SerializeToElement(new ResourceChangeDecisionEvent(
                     requestId,
@@ -563,6 +565,7 @@ public sealed class ProductManagerProfileTests
 
         await agent.HandleResourceChangeDecisionAsync(
             new AgentEventEnvelope(
+                Guid.NewGuid(),
                 Guid.NewGuid(),
                 ManagementEvents.ResourceChangeDecided,
                 JsonSerializer.SerializeToElement(new ResourceChangeDecisionEvent(

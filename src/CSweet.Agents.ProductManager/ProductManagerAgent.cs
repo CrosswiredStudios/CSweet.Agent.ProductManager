@@ -475,7 +475,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
     {
         var onboarding = DeserializePayload<AgentOnboardedEvent>(message.Payload)
             ?? throw new InvalidOperationException("The onboarding event payload is empty.");
-        var eventId = ResolveOnboardingEventId(onboarding, message);
+        var eventId = message.EventId;
         if (onboarding.OrganizationId == Guid.Empty ||
             onboarding.AgentOrganizationUserId == Guid.Empty ||
             onboarding.HiringOrganizationUserId == Guid.Empty ||
@@ -507,7 +507,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             : await EnsureManagerConversationAsync(
                 manager,
                 context,
-                message.EventId,
+                message.EventId.ToString("N"),
                 cancellationToken);
         await SendManagerDirectionRequestAsync(
             managerConversationId,
@@ -515,7 +515,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             operatingContext,
             eventId,
             context,
-            message.EventId,
+            message.EventId.ToString("N"),
             cancellationToken);
 
         if (manager.AgentInstallationId.HasValue && IsChiefManager(manager, organization))
@@ -528,13 +528,12 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 eventId,
                 operatingContext,
                 context,
-                message.EventId,
+                message.EventId.ToString("N"),
                 cancellationToken);
         }
 
-        _ = await context.Platform.InvokeAsync<CompleteAgentOnboardingRequest, JsonElement>(
-            ProductManagerProfile.CompleteOnboardingCapability,
-            new CompleteAgentOnboardingRequest(eventId),
+        _ = await context.Platform.Lifecycle.CompleteOnboardingAsync(
+            message,
             cancellationToken);
 
         _logger.LogInformation(
@@ -542,17 +541,6 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             message.EventId,
             manager.Id,
             managerConversationId);
-    }
-
-    internal static Guid ResolveOnboardingEventId(
-        AgentOnboardedEvent onboarding,
-        AgentEventEnvelope message)
-    {
-        if (onboarding.EventId != Guid.Empty)
-            return onboarding.EventId;
-        if (Guid.TryParse(message.CorrelationId, out var correlationId))
-            return correlationId;
-        throw new InvalidOperationException("The onboarding event identity is missing.");
     }
 
     private static async Task<Guid> EnsureManagerConversationAsync(
@@ -947,17 +935,17 @@ If the context is not sufficient to identify the deliverable responsibly, state 
 
     private static Task PublishChunkAsync(
         AgentRuntimeContext context,
-        string correlationId,
+        Guid eventId,
         AssistantResponseChunk chunk,
         CancellationToken cancellationToken)
     {
-        _ = correlationId;
+        _ = eventId;
         return context.ReportProgressAsync(chunk, cancellationToken);
     }
 
     private static Task PublishAgentErrorAsync(
         AgentRuntimeContext context,
-        string correlationId,
+        Guid eventId,
         string conversationId,
         int sequence,
         string message,
@@ -965,7 +953,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
         int attempt,
         CancellationToken cancellationToken)
     {
-        return PublishChunkAsync(context, correlationId, new AssistantResponseChunk(
+        return PublishChunkAsync(context, eventId, new AssistantResponseChunk(
             conversationId,
             sequence,
             message,

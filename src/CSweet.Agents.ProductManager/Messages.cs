@@ -2,16 +2,6 @@ using CSweet.Agent.SDK;
 
 namespace CSweet.Agents.ProductManager;
 
-public sealed record AgentOnboardedEvent(
-    Guid OrganizationId,
-    Guid AgentOrganizationUserId,
-    Guid HiringOrganizationUserId,
-    Guid ConversationId,
-    DateTimeOffset OccurredAt,
-    Guid EventId = default);
-
-public sealed record CompleteAgentOnboardingRequest(Guid EventId);
-
 public sealed record CreateCommunicationChatRequest(
     string? Title,
     string? Description,
