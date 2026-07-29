@@ -2,7 +2,7 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.0.3` and manifest protocol `2.0`.
+catalog was last verified against package version `1.1.0` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
 `CSweet.Agent.SDK` 1.0; manifest-audit tests reject names missing from that catalog.
@@ -45,8 +45,6 @@ policy at runtime.
 
 | Grant | Scope | Feature |
 |---|---|---|
-| `memory.business.read.v1` | organization | Recall approved organization-level product and business context. |
-| `memory.business.propose.v1` | organization | Propose organization-level business memories. |
 | `memory.user.read.v1` | user | Recall approved context for the current user. |
 | `memory.user.propose.v1` | user | Propose memories for the current user. |
 
@@ -60,6 +58,7 @@ policy at runtime.
 | `agent.onboarding.complete.v1` | organization | Acknowledge this installation's durable onboarding event after its initial manager message is complete. |
 | `platform.management.resource-change.propose.v1` | organization | Submit one auditable, atomic desired-team snapshot to the current manager. |
 | `platform.management.resource-change.read.v1` | organization | Read the Product Manager's pending and decided team snapshots. |
+| `work.board.create` | organization | Create one idempotent product-team kanban board after the complete role set is approved. |
 
 The manager is resolved from the authoritative organization snapshot and may be the CEO, Chief of
 Staff, another human employee, or another agent. A finalized team created while another executive
@@ -117,5 +116,6 @@ Chief of Staff or another authorized managing employee.
 - The agent has no credential declarations and no web access.
 - Read, proposal, communication, and cross-agent capabilities are separate grants.
 - A recommendation does not imply approval, hiring, or execution.
+- Board creation occurs only after manager approval and does not grant candidate or hiring authority.
 - Memory is supporting context and cannot override manager direction or current platform records.
 - Any manifest change must update this catalog and its manifest-version marker in the same change.

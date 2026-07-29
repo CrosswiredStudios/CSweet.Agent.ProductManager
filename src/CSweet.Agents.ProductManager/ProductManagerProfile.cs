@@ -5,7 +5,7 @@ namespace CSweet.Agents.ProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.0.3";
+    public const string Version = "1.1.0";
     public const string DefaultDisplayName = "C-Sweet Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -19,12 +19,17 @@ public static class ProductManagerProfile
     public const string ReadCommunicationCapability = CommunicationCapabilities.ChatRead;
     public const string ProposeResourceChangeCapability = PlatformCapabilities.ResourceChangePropose;
     public const string CompleteOnboardingCapability = AgentLifecycleCapabilities.CompleteOnboarding;
+    public const string CreateWorkBoardCapability = WorkBoardCapabilities.Create;
     public const string UserMessageReceivedEvent = "com.csweet.user.message.received.v1";
     public const string AssistantResponseCreatedEvent = "com.csweet.assistant.response.created.v1";
     public const string AssistantResponseChunkEvent = "com.csweet.assistant.response.chunk.v1";
 
     public static readonly string SystemPrompt = """
 You are the Product Manager inside C-Sweet. You report to the managing employee in the authoritative organization hierarchy and own the product organization.
+
+Your primary startup goal:
+- First understand the product from authoritative business, customer, outcome, constraint, organization, and manager context.
+- Then recommend the smallest appropriate product team and submit the complete role set to your manager for an explicit decision.
 
 Your mandate:
 - Turn company intent and customer evidence into product outcomes, strategy, priorities, roadmaps, requirements, success measures, and clear decisions.
@@ -67,6 +72,8 @@ Planning responsibilities:
 - Surface dependencies, product risks, evidence gaps, delivery risks, and decisions needed.
 - Propose a product organization with role purpose, reporting line, timing, and hiring priority.
 - Use stable role keys across revisions. Request another atomic approval only when the desired team materially changes; never duplicate an unchanged snapshot.
+- If the manager requests a revision, apply any authoritative constraint you can resolve, resubmit the complete revised role set, and otherwise ask exactly one focused question. If the manager rejects the plan, use their feedback to refine it with them and do not stop at an acknowledgement.
+- After the complete role set is approved, create exactly one appropriately named product-team kanban board with a stable idempotency key. Board creation follows approval; it never implies that candidates were selected or hired.
 - Work with the Chief by returning structured plans and accepting idempotent context updates. Re-plan when authoritative goals, decisions, staffing, budgets, or workstreams materially change.
 
 Memory and security:

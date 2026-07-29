@@ -1,5 +1,7 @@
 using System.Text.Json;
 using CSweet.Agent.SDK;
+using CSweet.WorkManagement.Contracts;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.Agents.ProductManager.Tests;
 
@@ -23,12 +25,55 @@ public sealed class ProductManagerProfileTests
         Assert.Contains(ProductManagementCapabilities.RoleBrief, requires);
         Assert.Contains(ProductManagementCapabilities.PlanReview, requires);
         Assert.Contains(ProductManagementCapabilities.Escalation, requires);
+        Assert.Contains(WorkBoardCapabilities.Create, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringRecommendationList, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringRecommendationUpsert, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringWorkflowStage, requires);
         Assert.Contains(ProductManagerProfile.CreateCommunicationCapability, requires);
         Assert.Contains(ProductManagerProfile.SendCommunicationMessageCapability, requires);
         Assert.Contains(AgentLifecycleCapabilities.CompleteOnboarding, requires);
+    }
+
+    [Fact]
+    public async Task Manifest_LoadsAndMatchesTheStandaloneAuthoringContract()
+    {
+        var manifestPath = ManifestPath();
+        var manifest = await AgentManifestLoader.LoadAsync(manifestPath, CancellationToken.None);
+
+        Assert.Equal(ProductManagerProfile.AgentId, manifest.Id);
+        Assert.Equal(ProductManagerProfile.Version, manifest.Version);
+        Assert.Equal(1, manifest.Runtime.MaximumConcurrentJobs);
+        Assert.True(File.Exists(Path.Combine(Path.GetDirectoryName(manifestPath)!, "AGENTS.md")));
+
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(manifestPath));
+        var root = document.RootElement;
+        Assert.All(root.GetProperty("provides").EnumerateArray(), capability =>
+        {
+            Assert.False(capability.GetProperty("inputSchema").GetProperty("additionalProperties").GetBoolean());
+            Assert.False(capability.GetProperty("outputSchema").GetProperty("additionalProperties").GetBoolean());
+        });
+        Assert.Equal(
+            [
+                ProductManagerProfile.OnboardedEvent,
+                ProductManagerProfile.UserMessageReceivedEvent,
+                ManagementEvents.ReviewDue,
+                ManagementEvents.ResourceChangeDecided
+            ],
+            root.GetProperty("events").GetProperty("subscribes").EnumerateArray()
+                .Select(item => item.GetString()!).ToArray());
+        Assert.Equal(
+            ["llmProviderId", "llmModel", "responseTone", "proactivePlanning", "maxPlanItems", "maxAlternatives", "customInstructions"],
+            root.GetProperty("configuration").EnumerateArray()
+                .Select(item => item.GetProperty("key").GetString()!).ToArray());
+
+        var project = await File.ReadAllTextAsync(Path.Combine(
+            Path.GetDirectoryName(manifestPath)!,
+            "src",
+            "CSweet.Agents.ProductManager",
+            "CSweet.Agents.ProductManager.csproj"));
+        Assert.DoesNotContain("<ProjectReference", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"1.1.1", project, StringComparison.Ordinal);
+        Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -44,6 +89,102 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("Do not present a finalized role list", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("routes the request to your authoritative manager", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Do not provide technical architecture", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("primary startup goal", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("kanban board", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("resubmit", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Revision_SequencesImmediateRolesToTheAuthoritativeConcurrentHireCap()
+    {
+        var roles = new[]
+        {
+            Role("design", "Product Designer", 1, "Now"),
+            Role("engineering", "Product Engineer", 2, "Now"),
+            Role("quality", "Quality Engineer", 3, "Next")
+        };
+        var finance = new FinancialOperatingProfileResponse(
+            Guid.NewGuid(), "USD", null, null, null, null, null, null, 1, "Approval", 7);
+
+        var revised = ProductManagerAgent.ReviseRolesForAuthoritativeConstraints(roles, finance);
+
+        Assert.Equal("Now", revised[0].Timing);
+        Assert.Equal("Next", revised[1].Timing);
+        Assert.Equal("Next", revised[2].Timing);
+    }
+
+    [Fact]
+    public void ProductBoardName_IsAppropriateStableAndWithinPlatformLimit()
+    {
+        var name = ProductManagerAgent.BuildProductBoardName(new string('x', 300));
+
+        Assert.EndsWith(" - Product Team", name, StringComparison.Ordinal);
+        Assert.True(name.Length <= 160);
+    }
+
+    [Fact]
+    public async Task ApprovedTeam_CreatesIdempotentBoardAndAcknowledgesManager()
+    {
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        CreateWorkBoardRequest? boardRequest = null;
+        SendCommunicationMessageRequest? messageRequest = null;
+        var response = ResourceChange(
+            requestId,
+            organizationId,
+            conversationId,
+            "Validate the first customer workflow",
+            "Approved");
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
+                PlatformCapabilities.ResourceChangeRead,
+                (_, _) => Task.FromResult(new ResourceChangeReadResponse([response])))
+            .RegisterCapability<CreateWorkBoardRequest, WorkBoardSummary>(
+                WorkBoardCapabilities.Create,
+                (request, _) =>
+                {
+                    boardRequest = request;
+                    return Task.FromResult(new WorkBoardSummary(
+                        Guid.NewGuid(), request.Name, request.Description ?? string.Empty,
+                        false, false, 1, [WorkBoardCapabilities.Create]));
+                })
+            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+                ProductManagerProfile.SendCommunicationMessageCapability,
+                (request, _) =>
+                {
+                    messageRequest = request;
+                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                });
+        var context = runtime.CreateContext(
+            organizationId.ToString("D"),
+            response.RequesterInstallationId.ToString("D"));
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+
+        await agent.HandleResourceChangeDecisionAsync(
+            new AgentEventEnvelope(
+                Guid.NewGuid(),
+                ManagementEvents.ResourceChangeDecided,
+                JsonSerializer.SerializeToElement(new ResourceChangeDecisionEvent(
+                    requestId,
+                    organizationId,
+                    response.RequesterOrganizationUserId,
+                    response.ManagerOrganizationUserId,
+                    "Approved",
+                    DateTimeOffset.UtcNow)),
+                DateTimeOffset.UtcNow),
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(boardRequest);
+        Assert.Equal(
+            $"product-team-board:{response.RequesterOrganizationUserId:N}",
+            boardRequest.IdempotencyKey);
+        Assert.Contains("Product Team", boardRequest.Name, StringComparison.Ordinal);
+        Assert.NotNull(messageRequest);
+        Assert.Contains("kanban board", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -123,9 +264,60 @@ public sealed class ProductManagerProfileTests
         while (directory is not null)
         {
             var candidate = Path.Combine(directory.FullName, "csweet-plugin.json");
-            if (File.Exists(candidate)) return candidate;
+            if (File.Exists(candidate) &&
+                File.Exists(Path.Combine(directory.FullName, "AGENTS.md")))
+                return candidate;
             directory = directory.Parent;
         }
         throw new FileNotFoundException("csweet-plugin.json was not found.");
+    }
+
+    private static ResourceChangeRole Role(string key, string title, int priority, string timing) =>
+        new(
+            key,
+            "Product",
+            title,
+            $"Own {title}.",
+            1,
+            priority,
+            timing,
+            ["product-delivery"],
+            false,
+            Guid.NewGuid(),
+            null);
+
+    private static ResourceChangeRequestResponse ResourceChange(
+        Guid requestId,
+        Guid organizationId,
+        Guid conversationId,
+        string goal,
+        string status)
+    {
+        var requester = Guid.NewGuid();
+        var role = Role("engineer", "Product Engineer", 1, "Now") with
+        {
+            ReportsToOrganizationUserId = requester
+        };
+        return new ResourceChangeRequestResponse(
+            requestId,
+            organizationId,
+            requester,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            conversationId,
+            Guid.Empty,
+            goal,
+            "Smallest complete team.",
+            1,
+            [role],
+            [new ResourceChangeRoleDelta("Add", role, null)],
+            [],
+            [],
+            null,
+            status,
+            "Delivered",
+            null,
+            DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow);
     }
 }

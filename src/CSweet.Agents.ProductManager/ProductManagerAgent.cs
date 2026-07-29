@@ -9,6 +9,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using CSweet.Memory;
+using CSweet.WorkManagement.Contracts;
 
 namespace CSweet.Agents.ProductManager;
 
@@ -345,8 +346,10 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                     cancellationToken))
                 return AgentWorkResult.Failure("Only the active reporting Chief of Staff may update product context.");
 
-            return new AgentWorkResult(true, SerializePayload(
-                ProductManagerOrchestrator.BuildContextUpdateResponse(update)));
+            var response = ProductManagerOrchestrator.BuildContextUpdateResponse(update);
+            if (response.PlanRefreshRequired)
+                await SubmitContextUpdateTeamPlanAsync(update, context, cancellationToken);
+            return new AgentWorkResult(true, SerializePayload(response));
         }
 
         var input = DeserializePayload<AssistantCapabilityInput>(request.Payload);
@@ -381,7 +384,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         }
     }
 
-    private static async Task HandleResourceChangeDecisionAsync(
+    internal async Task HandleResourceChangeDecisionAsync(
         AgentEventEnvelope message,
         AgentRuntimeContext context,
         CancellationToken cancellationToken)
@@ -397,13 +400,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             x.Id == decision.RequestId && x.RequesterInstallationId == installationId);
         if (request is null) return;
 
-        var text = request.Status switch
-        {
-            "Approved" => "The complete team design is approved. I’ll manage against this snapshot; sourcing and each eventual hire remain separately controlled.",
-            "RevisionRequested" => $"I’ve received the requested revision{FormatFeedback(request.DecisionComment)}. I’ll incorporate it and continue with one focused question if more context is needed.",
-            "Rejected" => $"I acknowledge the rejected team design{FormatFeedback(request.DecisionComment)}. The previous approved team snapshot remains authoritative.",
-            _ => $"The team design is now {request.Status}."
-        };
+        var text = await BuildDecisionFollowUpAsync(request, context, cancellationToken);
         _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
             ProductManagerProfile.SendCommunicationMessageCapability,
             new SendCommunicationMessageRequest(
@@ -415,6 +412,61 @@ public sealed class ProductManagerAgent : CSweetAgentBase
 
     private static string FormatFeedback(string? comment) =>
         string.IsNullOrWhiteSpace(comment) ? string.Empty : $": {comment.Trim()}";
+
+    private async Task<string> BuildDecisionFollowUpAsync(
+        ResourceChangeRequestResponse request,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        if (request.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase))
+        {
+            var board = await context.Platform.InvokeAsync<CreateWorkBoardRequest, WorkBoardSummary>(
+                ProductManagerProfile.CreateWorkBoardCapability,
+                new CreateWorkBoardRequest(
+                    BuildProductBoardName(request.ProductGoal),
+                    $"Kanban board for the approved product-team plan: {request.ProductGoal}",
+                    $"product-team-board:{request.RequesterOrganizationUserId:N}"),
+                cancellationToken);
+            return $"The complete team design is approved. I created the **{board.Name}** kanban board for the team. " +
+                   "The approved snapshot now governs team planning; sourcing and each eventual hire remain separately controlled.";
+        }
+
+        if (request.Status.Equals("RevisionRequested", StringComparison.OrdinalIgnoreCase))
+        {
+            var operatingContext = await _orchestrator.AssembleContextAsync(context, cancellationToken);
+            var revisedRoles = ReviseRolesForAuthoritativeConstraints(
+                request.Roles,
+                operatingContext.FinancialProfile);
+            if (!request.Roles.SequenceEqual(revisedRoles))
+            {
+                var revised = new ResourceChangeProposalRequest(
+                    request.ConversationId,
+                    Guid.Empty,
+                    request.ProductGoal,
+                    $"{request.Rationale} Revised in response to manager feedback{FormatFeedback(request.DecisionComment)}.",
+                    Math.Max(request.ContextRevision, operatingContext.FinancialProfile?.Revision ?? 0),
+                    revisedRoles,
+                    request.Assumptions,
+                    request.Constraints,
+                    request.SupersedesRequestId,
+                    $"resource-change-revision:{request.Id:N}");
+                _ = await context.Platform.ProposeResourceChangeAsync(revised, cancellationToken);
+                return $"I received the requested revision{FormatFeedback(request.DecisionComment)}. " +
+                       "I applied the authoritative hiring constraint and resubmitted the complete revised team for approval.";
+            }
+
+            return $"I received the requested revision{FormatFeedback(request.DecisionComment)}. " +
+                   "What single change would make the complete team plan approvable?";
+        }
+
+        if (request.Status.Equals("Rejected", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"The team plan was rejected{FormatFeedback(request.DecisionComment)}. " +
+                   "What single outcome, role, or constraint should I change first so I can submit a refined complete plan?";
+        }
+
+        return $"The team design is now {request.Status}.";
+    }
 
     private async Task HandleOnboardedAsync(
         AgentEventEnvelope message,
@@ -465,6 +517,20 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             context,
             message.EventId,
             cancellationToken);
+
+        if (manager.AgentInstallationId.HasValue && IsChiefManager(manager, organization))
+        {
+            await CoordinateWithChiefAsync(
+                self,
+                installationId,
+                manager,
+                managerConversationId,
+                eventId,
+                operatingContext,
+                context,
+                message.EventId,
+                cancellationToken);
+        }
 
         _ = await context.Platform.InvokeAsync<CompleteAgentOnboardingRequest, JsonElement>(
             ProductManagerProfile.CompleteOnboardingCapability,
@@ -534,6 +600,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         OrganizationPerson self,
         Guid installationId,
         OrganizationPerson manager,
+        Guid managerConversationId,
         Guid eventId,
         ProductOperatingContext operatingContext,
         AgentRuntimeContext context,
@@ -590,7 +657,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             var plan = ProductManagerOrchestrator.BuildProductPlan(
                 planRequest,
                 operatingContext with { RoleBrief = roleBrief });
-            await InvokeCoordinationAsync<ProductPlanReviewRequest, ProductPlanReviewResponse>(
+            var review = await InvokeCoordinationAsync<ProductPlanReviewRequest, ProductPlanReviewResponse>(
                 context,
                 manager.AgentInstallationId.Value,
                 ProductManagementCapabilities.PlanReview,
@@ -602,7 +669,175 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                     $"product-onboarding-review:{eventId:D}"),
                 correlationId,
                 cancellationToken);
+            if (review.Status.Equals("Accepted", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = await SubmitTeamPlanForApprovalAsync(
+                    self,
+                    installationId,
+                    managerConversationId,
+                    plan,
+                    roleBrief.Constraints,
+                    eventId,
+                    context,
+                    cancellationToken);
+            }
+            else
+            {
+                var feedback = review.OutstandingDecisions.FirstOrDefault() ??
+                               review.Feedback.FirstOrDefault() ??
+                               "Please identify the single change needed before I submit the complete team.";
+                _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+                    ProductManagerProfile.SendCommunicationMessageCapability,
+                    new SendCommunicationMessageRequest(
+                        managerConversationId,
+                        $"I completed the initial product-team analysis, but the plan is not yet decision-ready. {feedback}",
+                        $"product-onboarding-review-feedback:{eventId:D}"),
+                    cancellationToken);
+            }
         }
+    }
+
+    private static async Task<ResourceChangeRequestResponse> SubmitTeamPlanForApprovalAsync(
+        OrganizationPerson self,
+        Guid installationId,
+        Guid managerConversationId,
+        ProductPlanResponse plan,
+        IReadOnlyList<string> constraints,
+        Guid sourceEventId,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        var roles = plan.TeamStructure
+            .OrderBy(role => role.Priority)
+            .Select(role => new ResourceChangeRole(
+                NormalizeRoleKey(role.Title),
+                "Product",
+                role.Title,
+                role.Purpose,
+                1,
+                role.Priority,
+                role.Timing,
+                RequiredCapabilitiesFor(role.Title),
+                false,
+                self.Id,
+                null))
+            .ToList();
+        var request = new ResourceChangeProposalRequest(
+            managerConversationId,
+            Guid.Empty,
+            plan.Recommendation,
+            "The proposed roles form the smallest cross-functional team that covers the approved product outcome and its independent quality needs.",
+            plan.ContextRevision,
+            roles,
+            plan.Assumptions,
+            constraints,
+            null,
+            $"product-team:{installationId:N}:{sourceEventId:N}");
+        return await context.Platform.ProposeResourceChangeAsync(request, cancellationToken);
+    }
+
+    private async Task SubmitContextUpdateTeamPlanAsync(
+        ProductContextUpdateRequest update,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        var operatingContext = await _orchestrator.AssembleContextAsync(
+            context,
+            cancellationToken,
+            update.RoleBrief);
+        if (!Guid.TryParse(context.InstallationId, out var installationId) ||
+            !Guid.TryParse(context.Identity?.EmployeeId, out var selfId))
+            throw new InvalidOperationException("The Product Manager identity is unavailable.");
+        var organization = operatingContext.Organization
+            ?? throw new InvalidOperationException("The organization snapshot is unavailable.");
+        var self = organization.People.SingleOrDefault(person =>
+            person.Id == selfId &&
+            person.AgentInstallationId == installationId &&
+            person.IsActive)
+            ?? throw new InvalidOperationException("The Product Manager is not active in the organization.");
+        var manager = self.ReportsToId.HasValue
+            ? organization.People.SingleOrDefault(person =>
+                person.Id == self.ReportsToId.Value &&
+                person.IsActive &&
+                person.AgentInstallationId.HasValue)
+            : null;
+        if (manager is null || !IsChiefManager(manager, organization))
+            throw new InvalidOperationException("The ready context update did not come from the active Chief of Staff manager.");
+        var conversationId = await EnsureManagerConversationAsync(
+            manager,
+            context,
+            update.SourceEventId.ToString("D"),
+            cancellationToken);
+        var plan = ProductManagerOrchestrator.BuildProductPlan(
+            new ProductPlanRequest(
+                update.RoleBrief,
+                "Refresh the product strategy and submit the complete desired product team for manager approval.",
+                update.SourceEventId,
+                update.IdempotencyKey),
+            operatingContext);
+        _ = await SubmitTeamPlanForApprovalAsync(
+            self,
+            installationId,
+            conversationId,
+            plan,
+            update.RoleBrief.Constraints,
+            update.SourceEventId,
+            context,
+            cancellationToken);
+    }
+
+    internal static string BuildProductBoardName(string productGoal)
+    {
+        var normalized = string.Join(' ', productGoal.Split(
+            [' ', '\t', '\r', '\n'],
+            StringSplitOptions.RemoveEmptyEntries));
+        const string suffix = " - Product Team";
+        var maximumGoalLength = 160 - suffix.Length;
+        if (normalized.Length > maximumGoalLength)
+            normalized = normalized[..maximumGoalLength].TrimEnd();
+        return $"{normalized}{suffix}";
+    }
+
+    internal static IReadOnlyList<ResourceChangeRole> ReviseRolesForAuthoritativeConstraints(
+        IReadOnlyList<ResourceChangeRole> roles,
+        FinancialOperatingProfileResponse? finance)
+    {
+        if (finance?.MaximumConcurrentHires is not { } cap || cap < 0)
+            return roles.ToList();
+        var nowUsed = 0;
+        return roles
+            .OrderBy(role => role.Priority)
+            .Select(role =>
+            {
+                if (!role.Timing.Equals("Now", StringComparison.OrdinalIgnoreCase))
+                    return role;
+                var canStartNow = nowUsed + role.Headcount <= cap;
+                if (canStartNow) nowUsed += role.Headcount;
+                return canStartNow ? role : role with { Timing = "Next" };
+            })
+            .ToList();
+    }
+
+    private static IReadOnlyList<string> RequiredCapabilitiesFor(string title)
+    {
+        if (title.Contains("Design", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("Research", StringComparison.OrdinalIgnoreCase))
+            return ["product-research", "product-design"];
+        if (title.Contains("Quality", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("QA", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("Test", StringComparison.OrdinalIgnoreCase))
+            return ["quality-assurance"];
+        if (title.Contains("Architect", StringComparison.OrdinalIgnoreCase))
+            return ["software-architecture"];
+        return ["product-delivery"];
+    }
+
+    private static string NormalizeRoleKey(string value)
+    {
+        var chars = value.Trim().ToLowerInvariant()
+            .Select(character => char.IsLetterOrDigit(character) ? character : '-')
+            .ToArray();
+        return string.Join('-', new string(chars).Split('-', StringSplitOptions.RemoveEmptyEntries));
     }
 
     private static async Task<TResponse> InvokeCoordinationAsync<TRequest, TResponse>(
