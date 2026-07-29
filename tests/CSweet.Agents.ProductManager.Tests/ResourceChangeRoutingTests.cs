@@ -5,6 +5,53 @@ namespace CSweet.Agents.ProductManager.Tests;
 public sealed class ResourceChangeRoutingTests
 {
     [Fact]
+    public void ApprovalClaimGuard_ReplacesUnverifiedSubmissionClaim()
+    {
+        const string draft =
+            "I submitted the Lean Technical Spike Team to your manager for approval.";
+
+        var guarded = ProductManagerAgent.EnsureAccurateApprovalStatus(draft, null);
+
+        Assert.Contains("did not create a durable approval request", guarded);
+        Assert.Contains("No approval is pending", guarded);
+        Assert.DoesNotContain("I submitted", guarded);
+    }
+
+    [Fact]
+    public void ApprovalClaimGuard_AppendsDurableRequestIdAfterSuccessfulSubmission()
+    {
+        var requestId = Guid.NewGuid();
+        var response = new ResourceChangeRequestResponse(
+            requestId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Technical spike",
+            "Validate feasibility.",
+            1,
+            [],
+            [],
+            [],
+            [],
+            null,
+            "Pending",
+            "DeliveredInChat",
+            null,
+            DateTimeOffset.UtcNow,
+            null);
+
+        var guarded = ProductManagerAgent.EnsureAccurateApprovalStatus(
+            "I submitted the recommendation for approval.",
+            response);
+
+        Assert.Contains(requestId.ToString("D"), guarded);
+        Assert.Contains("Pending", guarded);
+    }
+
+    [Fact]
     public async Task ManagerTurn_RetainsSourceConversationAndTurn()
     {
         var fixture = new RoutingFixture(managerType: "Agent", sourceIsManager: true);
