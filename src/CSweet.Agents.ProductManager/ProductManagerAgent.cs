@@ -448,7 +448,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                     revisedRoles,
                     request.Assumptions,
                     request.Constraints,
-                    request.SupersedesRequestId,
+                    request.Id,
                     $"resource-change-revision:{request.Id:N}");
                 _ = await context.Platform.ProposeResourceChangeAsync(revised, cancellationToken);
                 return $"I received the requested revision{FormatFeedback(request.DecisionComment)}. " +

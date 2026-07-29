@@ -95,6 +95,73 @@ public sealed class ProductManagerProfileTests
     }
 
     [Fact]
+    public async Task Configuration_DescribesEveryFieldAndRejectsUnsupportedTone()
+    {
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+        var context = new AgentTestRuntime().CreateContext();
+        var describe = await agent.ExecuteCapabilityAsync(
+            new AgentCapabilityRequest(
+                Guid.NewGuid(),
+                AgentConfigurationCapabilities.Describe,
+                JsonSerializer.SerializeToElement(new { })),
+            context,
+            CancellationToken.None);
+
+        Assert.True(describe.Succeeded);
+        var schema = describe.Value!.Value.Deserialize<AgentConfigurationSchemaResponse>(
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        Assert.NotNull(schema);
+        Assert.Equal(
+            ["llmProviderId", "llmModel", "responseTone", "proactivePlanning", "maxPlanItems", "maxAlternatives", "customInstructions"],
+            schema.Fields.Select(field => field.Key).ToArray());
+        var tone = schema.Fields.Single(field => field.Key == "responseTone");
+        Assert.Equal(
+            ["concise", "balanced", "detailed"],
+            tone.Options!.Select(option => option.Value).ToArray());
+        Assert.Equal("concise", schema.Settings["responseTone"].GetString());
+        Assert.True(schema.Settings["proactivePlanning"].GetBoolean());
+        Assert.Equal(3, schema.Settings["maxPlanItems"].GetInt32());
+        Assert.Equal(2, schema.Settings["maxAlternatives"].GetInt32());
+
+        var invalid = await agent.ExecuteCapabilityAsync(
+            new AgentCapabilityRequest(
+                Guid.NewGuid(),
+                AgentConfigurationCapabilities.Update,
+                JsonSerializer.SerializeToElement(new UpdateAgentConfigurationRequest(
+                    new Dictionary<string, JsonElement>
+                    {
+                        ["responseTone"] = JsonSerializer.SerializeToElement("Blunt")
+                    }))),
+            context,
+            CancellationToken.None);
+
+        Assert.False(invalid.Succeeded);
+        Assert.Contains("must be one of", invalid.Error, StringComparison.OrdinalIgnoreCase);
+
+        var valid = await agent.ExecuteCapabilityAsync(
+            new AgentCapabilityRequest(
+                Guid.NewGuid(),
+                AgentConfigurationCapabilities.Update,
+                JsonSerializer.SerializeToElement(new UpdateAgentConfigurationRequest(
+                    new Dictionary<string, JsonElement>
+                    {
+                        ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString("D")),
+                        ["llmModel"] = JsonSerializer.SerializeToElement("model"),
+                        ["responseTone"] = JsonSerializer.SerializeToElement("concise"),
+                        ["proactivePlanning"] = JsonSerializer.SerializeToElement(true),
+                        ["maxPlanItems"] = JsonSerializer.SerializeToElement(3),
+                        ["maxAlternatives"] = JsonSerializer.SerializeToElement(2),
+                        ["customInstructions"] = JsonSerializer.SerializeToElement("Prefer outcome roadmaps.")
+                    }))),
+            context,
+            CancellationToken.None);
+
+        Assert.True(valid.Succeeded);
+    }
+
+    [Fact]
     public void Revision_SequencesImmediateRolesToTheAuthoritativeConcurrentHireCap()
     {
         var roles = new[]
@@ -185,6 +252,78 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("Product Team", boardRequest.Name, StringComparison.Ordinal);
         Assert.NotNull(messageRequest);
         Assert.Contains("kanban board", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task RevisionRequested_ResubmitsCompleteTeamAndSupersedesReviewedRequest()
+    {
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var response = ResourceChange(
+            requestId,
+            organizationId,
+            Guid.NewGuid(),
+            "Validate the first customer workflow",
+            "RevisionRequested") with
+        {
+            DecisionComment = "Start only one hire at a time.",
+            Roles =
+            [
+                Role("design", "Product Designer", 1, "Now"),
+                Role("engineering", "Product Engineer", 2, "Now")
+            ]
+        };
+        response = response with
+        {
+            Deltas = response.Roles
+                .Select(role => new ResourceChangeRoleDelta("Add", role, null))
+                .ToList()
+        };
+        ResourceChangeProposalRequest? revisedProposal = null;
+        var finance = new FinancialOperatingProfileResponse(
+            organizationId, "USD", null, null, null, null, null, null, 1, "Approval", 2);
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
+                PlatformCapabilities.ResourceChangeRead,
+                (_, _) => Task.FromResult(new ResourceChangeReadResponse([response])))
+            .RegisterCapability<JsonElement, FinancialOperatingProfileResponse>(
+                PlatformCapabilities.FinanceProfileRead,
+                (_, _) => Task.FromResult(finance))
+            .RegisterCapability<ResourceChangeProposalRequest, ResourceChangeRequestResponse>(
+                PlatformCapabilities.ResourceChangePropose,
+                (request, _) =>
+                {
+                    revisedProposal = request;
+                    return Task.FromResult(response);
+                })
+            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+                ProductManagerProfile.SendCommunicationMessageCapability,
+                (_, _) => Task.FromResult(new CommunicationHubActionResponse(true, null, "sent")));
+        var context = runtime.CreateContext(
+            organizationId.ToString("D"),
+            response.RequesterInstallationId.ToString("D"));
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+
+        await agent.HandleResourceChangeDecisionAsync(
+            new AgentEventEnvelope(
+                Guid.NewGuid(),
+                ManagementEvents.ResourceChangeDecided,
+                JsonSerializer.SerializeToElement(new ResourceChangeDecisionEvent(
+                    requestId,
+                    organizationId,
+                    response.RequesterOrganizationUserId,
+                    response.ManagerOrganizationUserId,
+                    "RevisionRequested",
+                    DateTimeOffset.UtcNow)),
+                DateTimeOffset.UtcNow),
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(revisedProposal);
+        Assert.Equal(requestId, revisedProposal.SupersedesRequestId);
+        Assert.Equal(["Now", "Next"], revisedProposal.Roles.Select(role => role.Timing).ToArray());
     }
 
     [Fact]
