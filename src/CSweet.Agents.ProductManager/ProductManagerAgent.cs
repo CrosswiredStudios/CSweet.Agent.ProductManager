@@ -475,8 +475,8 @@ public sealed class ProductManagerAgent : CSweetAgentBase
     {
         var onboarding = DeserializePayload<AgentOnboardedEvent>(message.Payload)
             ?? throw new InvalidOperationException("The onboarding event payload is empty.");
-        if (!Guid.TryParse(message.EventId, out var eventId) ||
-            onboarding.OrganizationId == Guid.Empty ||
+        var eventId = ResolveOnboardingEventId(onboarding, message);
+        if (onboarding.OrganizationId == Guid.Empty ||
             onboarding.AgentOrganizationUserId == Guid.Empty ||
             onboarding.HiringOrganizationUserId == Guid.Empty ||
             onboarding.ConversationId == Guid.Empty ||
@@ -542,6 +542,17 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             message.EventId,
             manager.Id,
             managerConversationId);
+    }
+
+    internal static Guid ResolveOnboardingEventId(
+        AgentOnboardedEvent onboarding,
+        AgentEventEnvelope message)
+    {
+        if (onboarding.EventId != Guid.Empty)
+            return onboarding.EventId;
+        if (Guid.TryParse(message.CorrelationId, out var correlationId))
+            return correlationId;
+        throw new InvalidOperationException("The onboarding event identity is missing.");
     }
 
     private static async Task<Guid> EnsureManagerConversationAsync(

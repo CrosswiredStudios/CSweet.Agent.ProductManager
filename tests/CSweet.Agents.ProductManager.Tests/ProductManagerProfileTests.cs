@@ -170,8 +170,11 @@ public sealed class ProductManagerProfileTests
         var managerId = Guid.NewGuid();
         var conversationId = Guid.NewGuid();
         var providerProfileId = Guid.NewGuid();
+        var onboardingEventId = Guid.NewGuid();
+        var workItemId = Guid.NewGuid();
         var generatedOpening = "I’m managing the playable browser prototype for classic game fans. I’m now shaping the smallest team and will submit it for approval.";
         SendCommunicationMessageRequest? sentMessage = null;
+        CompleteAgentOnboardingRequest? completionRequest = null;
         var profile = new BusinessProfileResponse(
             organizationId,
             "Super Awesome Games",
@@ -232,7 +235,11 @@ public sealed class ProductManagerProfileTests
                 })
             .RegisterCapability<CompleteAgentOnboardingRequest, JsonElement>(
                 AgentLifecycleCapabilities.CompleteOnboarding,
-                (_, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { completed = true })));
+                (request, _) =>
+                {
+                    completionRequest = request;
+                    return Task.FromResult(JsonSerializer.SerializeToElement(new { completed = true }));
+                });
         var chatClient = new CapturingChatClient(generatedOpening);
         var agent = new ProductManagerAgent(
             new TestLlmClientFactory(chatClient),
@@ -257,15 +264,17 @@ public sealed class ProductManagerProfileTests
 
         await agent.HandleEventAsync(
             new AgentEventEnvelope(
-                Guid.NewGuid(),
+                workItemId,
                 ProductManagerProfile.OnboardedEvent,
                 JsonSerializer.SerializeToElement(new AgentOnboardedEvent(
                     organizationId,
                     productManagerId,
                     managerId,
                     conversationId,
-                    DateTimeOffset.UtcNow)),
-                DateTimeOffset.UtcNow),
+                    DateTimeOffset.UtcNow,
+                    onboardingEventId)),
+                DateTimeOffset.UtcNow,
+                Guid.NewGuid().ToString("N")),
             context,
             CancellationToken.None);
 
@@ -276,6 +285,9 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("Deliver a playable browser prototype", chatClient.Prompt, StringComparison.Ordinal);
         Assert.Contains("approved C-Sweet organization", chatClient.Prompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Do not send a generic welcome", chatClient.Prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(completionRequest);
+        Assert.Equal(onboardingEventId, completionRequest.EventId);
+        Assert.NotEqual(workItemId, completionRequest.EventId);
     }
 
     [Fact]

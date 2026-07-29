@@ -7,7 +7,8 @@ public sealed record AgentOnboardedEvent(
     Guid AgentOrganizationUserId,
     Guid HiringOrganizationUserId,
     Guid ConversationId,
-    DateTimeOffset OccurredAt);
+    DateTimeOffset OccurredAt,
+    Guid EventId = default);
 
 public sealed record CompleteAgentOnboardingRequest(Guid EventId);
 
