@@ -2,7 +2,7 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.1.0` and manifest protocol `2.0`.
+catalog was last verified against package version `1.1.1` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
 `CSweet.Agent.SDK` 1.0; manifest-audit tests reject names missing from that catalog.
@@ -45,6 +45,7 @@ policy at runtime.
 
 | Grant | Scope | Feature |
 |---|---|---|
+| `memory.business.read.v1` | organization | Recall approved organization-wide business and product context. |
 | `memory.user.read.v1` | user | Recall approved context for the current user. |
 | `memory.user.propose.v1` | user | Propose memories for the current user. |
 

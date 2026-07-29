@@ -82,20 +82,17 @@ Route missing executive information through the managing employee; call the Chie
         string managerDisplayName)
     {
         var profile = context.BusinessProfile;
-        var known = new List<string>();
-        if (profile is not null)
-        {
-            known.Add(profile.Name);
-            if (!string.IsNullOrWhiteSpace(profile.LifecycleStage))
-                known.Add($"{profile.LifecycleStage} stage");
-            if (profile.TargetCustomers.FirstOrDefault() is { } customer)
-                known.Add($"first customer: {customer}");
-            if (profile.Offerings.FirstOrDefault() is { } offering)
-                known.Add($"initial offering: {offering}");
-        }
         var objective = context.Organization?.Objectives
             .FirstOrDefault(x => x.Status is not ("Completed" or "Cancelled"))?.Title;
-        if (!string.IsNullOrWhiteSpace(objective)) known.Add($"current objective: {objective}");
+        var workstreamOutcome = context.Organization?.Workstreams
+            .FirstOrDefault(x => x.Status is not ("Completed" or "Cancelled"))?.Outcome;
+        var customer = profile?.TargetCustomers.FirstOrDefault();
+        var offering = profile?.Offerings.FirstOrDefault();
+        var deliverable = workstreamOutcome ??
+                          objective ??
+                          offering ??
+                          profile?.Mission ??
+                          profile?.Description;
 
         var question = profile switch
         {
@@ -104,25 +101,37 @@ Route missing executive information through the managing employee; call the Chie
                 "Which specific customer and problem should I treat as the first product priority?",
             { Offerings.Count: 0 } =>
                 "What first product or customer outcome should I be accountable for?",
-            _ when string.IsNullOrWhiteSpace(objective) &&
-                   (context.Organization?.Workstreams.Count ?? 0) == 0 =>
+            _ when string.IsNullOrWhiteSpace(deliverable) =>
                 "What first measurable product outcome, target date, and success measure should I own?",
             _ when context.FinancialProfile?.MaximumMonthlyWorkforceSpend is null =>
-                "What decision rights, deadline, and workforce constraint should govern my first product plan?",
-            _ =>
-                "Please confirm my mandate, first product outcome, success measure, decision rights, and the constraints I should use."
+                "What workforce constraint should govern the initial product team?",
+            _ => null
         };
-        var understanding = known.Count == 0
-            ? "I do not yet have enough authoritative product context."
-            : $"My current understanding is: {string.Join("; ", known)}.";
+
+        if (question is not null)
+        {
+            var knownBusiness = profile is null
+                ? "I do not yet have an authoritative business profile."
+                : $"I reviewed {profile.Name}" +
+                  (string.IsNullOrWhiteSpace(profile.LifecycleStage)
+                      ? "."
+                      : $" at the {profile.LifecycleStage} stage.");
+            var knownProduct = string.IsNullOrWhiteSpace(deliverable)
+                ? string.Empty
+                : $" My current product focus is {deliverable}.";
+            return $"""
+Hi {managerDisplayName} — {knownBusiness}{knownProduct}
+
+Before I finalize the deliverable and its smallest viable team: {question}
+""";
+        }
+
         return $"""
-Hi {managerDisplayName} — I’m ready to begin as Product Manager.
+Hi {managerDisplayName} — I reviewed the current business, operating context, and available approved memory for {profile!.Name}.
 
-{understanding}
+My current product assignment is to manage **{deliverable}** for **{customer}**, beginning with **{offering}**. I’ll treat that as the working deliverable unless newer authoritative direction changes it.
 
-{question}
-
-I’ll use your direction to prepare the preferred product strategy, roadmap priorities, and product-team structure, with alternatives only where an executive choice is useful.
+I’m now designing the smallest cross-functional team that can own this outcome safely. I’ll submit the complete team as one proposal for your approval before treating any role as approved or starting the product-team board.
 """;
     }
 

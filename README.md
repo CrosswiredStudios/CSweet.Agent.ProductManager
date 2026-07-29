@@ -1,7 +1,7 @@
 # C-Sweet Product Manager
 
 First-party Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 1.1.1 and manifest protocol v2.
-The agent package version is `1.1.0`.
+The agent package version is `1.1.1`.
 
 It owns product outcomes, customer discovery, product strategy, prioritization, roadmaps, requirements, success measures, delivery alignment, and product-team design. It does not choose technical architecture, write production code, make legal conclusions, source candidates, hire workers, or spend money.
 
@@ -10,9 +10,12 @@ It owns product outcomes, customer discovery, product strategy, prioritization, 
 The agent receives exact-installation durable events and capability work. Its primary startup goal is
 to understand the authoritative product context and then recommend the smallest appropriate
 product team. Onboarding validates its employee/reporting identity, opens or reuses the manager
-conversation, sends an idempotent direction request, obtains and reviews the Chief of Staff role
-brief when that agent is its manager, and submits one atomic team snapshot for an explicit manager
-decision when the plan is ready.
+conversation, and uses its configured model to compose a business-specific opening from authoritative
+operating context and relevant approved organization and relationship memory. It identifies the
+deliverable it believes it owns, asks only one genuinely missing clarification when necessary, then
+obtains and reviews the Chief of Staff role brief when that agent is its manager and submits one
+atomic team snapshot for an explicit manager decision when the plan is ready. A deterministic,
+contextual message is used only when model generation is unavailable.
 
 Requested revisions are applied and resubmitted when an authoritative constraint makes the change
 deterministic; otherwise the Product Manager asks its manager one focused refinement question.

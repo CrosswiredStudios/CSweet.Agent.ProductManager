@@ -77,8 +77,8 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 "Maximum Plan Items",
                 required: true,
                 description: "Caps the number of primary items in a product or product-team plan.",
-                minimum: 3,
-                maximum: 20,
+                minimum: 1,
+                maximum: 3,
                 step: 1,
                 defaultValue: 3)
             .Number(
@@ -565,7 +565,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         return response.Chat.Id;
     }
 
-    private static async Task SendManagerDirectionRequestAsync(
+    private async Task SendManagerDirectionRequestAsync(
         Guid managerConversationId,
         OrganizationPerson manager,
         ProductOperatingContext operatingContext,
@@ -574,15 +574,92 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         string correlationId,
         CancellationToken cancellationToken)
     {
+        var openingMessage = await GenerateOnboardingMessageAsync(
+            managerConversationId,
+            manager,
+            operatingContext,
+            eventId,
+            context,
+            cancellationToken);
         _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
             ProductManagerProfile.SendCommunicationMessageCapability,
             new SendCommunicationMessageRequest(
                 managerConversationId,
-                ProductManagerOrchestrator.BuildManagerDirectionRequest(
-                    operatingContext,
-                    manager.DisplayName),
+                openingMessage,
                 $"product-manager-onboarding-direction:{eventId:D}"),
             cancellationToken);
+    }
+
+    private async Task<string> GenerateOnboardingMessageAsync(
+        Guid managerConversationId,
+        OrganizationPerson manager,
+        ProductOperatingContext operatingContext,
+        Guid eventId,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        var fallback = ProductManagerOrchestrator.BuildManagerDirectionRequest(
+            operatingContext,
+            manager.DisplayName);
+        var providerProfileId = Settings.GetGuid("llmProviderId");
+        if (providerProfileId is null || providerProfileId == Guid.Empty)
+        {
+            _logger.LogWarning(
+                "Product Manager onboarding used the contextual fallback because no LLM provider is configured for installation {InstallationId}.",
+                context.InstallationId);
+            return fallback;
+        }
+
+        var onboardingRequest = $"""
+This is your first message after being hired as Product Manager. Address your managing employee, {manager.DisplayName}.
+
+Review the authoritative business, finance, organization, objective, workstream, and pattern context. Also use only relevant approved C-Sweet organization and relationship memory supplied to you by the memory provider. Current authoritative records and manager direction outrank recalled memory.
+
+Do not send a generic welcome, announce that you are merely ready to begin, or ask the manager to repeat facts already available. Lead with your best current determination of the specific product or deliverable you are managing, its target customer, and the immediate outcome. Clearly distinguish authoritative facts from any inference.
+
+If the context is sufficient, briefly explain that you are now designing the smallest cross-functional team needed to deliver that outcome and will submit the complete team to the manager for approval. Do not claim that roles are approved, sourced, or hired, and do not present a finalized role list in this opening message; the structured onboarding workflow immediately following this message handles the team proposal and approval request.
+
+If the context is not sufficient to identify the deliverable responsibly, state what you already understand and ask exactly one highest-value clarification. Do not use a multi-part intake questionnaire or invoke an action tool from this opening-message generation.
+""";
+
+        try
+        {
+            var response = await GenerateResponseAsync(
+                new AssistantCapabilityInput(
+                    providerProfileId.Value,
+                    managerConversationId.ToString("D"),
+                    onboardingRequest,
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["userId"] = manager.Id.ToString("D"),
+                        ["onboardingEventId"] = eventId.ToString("D"),
+                        ["onboarding"] = "true"
+                    },
+                    manager.Id.ToString("D")),
+                ProductManagerProfile.ConverseCapability,
+                context,
+                cancellationToken,
+                operatingContext,
+                allowResourceChangeApprovalTool: false);
+
+            if (!string.IsNullOrWhiteSpace(response.Response))
+            {
+                return response.Response.Trim();
+            }
+
+            _logger.LogWarning(
+                "Product Manager onboarding generation returned no content for installation {InstallationId}.",
+                context.InstallationId);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogWarning(
+                exception,
+                "Product Manager onboarding generation failed for installation {InstallationId}; using contextual fallback.",
+                context.InstallationId);
+        }
+
+        return fallback;
     }
 
     private static bool IsChiefManager(
@@ -929,7 +1006,8 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         string capability,
         AgentRuntimeContext runtimeContext,
         ProductOperatingContext? operatingContext,
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken,
+        bool allowResourceChangeApprovalTool = true)
     {
         _logger.LogInformation(
             "Product Manager resolving chat client for provider {ProviderProfileId} and conversation {ConversationId}.",
@@ -970,45 +1048,48 @@ public sealed class ProductManagerAgent : CSweetAgentBase
 
         var tools = (await runtimeContext.GetModelToolsAsync(cancellationToken)).ToList();
         tools.RemoveAll(tool => tool is AIFunctionDeclaration function &&
-                                function.Name == "propose_resource_change");
-        tools.Add(AIFunctionFactory.Create(
-            (string productGoal,
-                string rationale,
-                long contextRevision,
-                IReadOnlyList<ResourceChangeRole> roles,
-                IReadOnlyList<string> assumptions,
-                IReadOnlyList<string> constraints,
-                Guid? supersedesRequestId,
-                CancellationToken token) =>
-                RequestResourceChangeApprovalAsync(
-                    productGoal,
-                    rationale,
-                    contextRevision,
-                    roles,
-                    assumptions,
-                    constraints,
-                    supersedesRequestId,
-                    input,
-                    operatingContext,
-                    runtimeContext,
-                    token),
-            "request_resource_change_approval",
-            "Request one atomic manager approval for the complete desired product-team snapshot before presenting finalized roles. Use after product discovery is sufficient. The runtime routes the request to the authoritative manager when the current conversation is with another executive."));
-        if (tools.Any(tool => tool is AIFunctionDeclaration function &&
-                            function.Name == "product_management_escalation"))
+                                function.Name is "propose_resource_change" or "request_resource_change_approval");
+        if (allowResourceChangeApprovalTool)
         {
             tools.Add(AIFunctionFactory.Create(
-                (string topic, string question, string whyItMatters, CancellationToken token) =>
-                    EscalateToChiefAsync(
-                        topic,
-                        question,
-                        whyItMatters,
+                (string productGoal,
+                    string rationale,
+                    long contextRevision,
+                    IReadOnlyList<ResourceChangeRole> roles,
+                    IReadOnlyList<string> assumptions,
+                    IReadOnlyList<string> constraints,
+                    Guid? supersedesRequestId,
+                    CancellationToken token) =>
+                    RequestResourceChangeApprovalAsync(
+                        productGoal,
+                        rationale,
+                        contextRevision,
+                        roles,
+                        assumptions,
+                        constraints,
+                        supersedesRequestId,
                         input,
                         operatingContext,
                         runtimeContext,
                         token),
-                "escalate_to_chief",
-                "Route one missing executive fact, commitment, budget, or organization-wide decision to the active Chief of Staff. Do not ask the CEO directly after using this tool."));
+                "request_resource_change_approval",
+                "Request one atomic manager approval for the complete desired product-team snapshot before presenting finalized roles. Use after product discovery is sufficient. The runtime routes the request to the authoritative manager when the current conversation is with another executive."));
+            if (tools.Any(tool => tool is AIFunctionDeclaration function &&
+                                function.Name == "product_management_escalation"))
+            {
+                tools.Add(AIFunctionFactory.Create(
+                    (string topic, string question, string whyItMatters, CancellationToken token) =>
+                        EscalateToChiefAsync(
+                            topic,
+                            question,
+                            whyItMatters,
+                            input,
+                            operatingContext,
+                            runtimeContext,
+                            token),
+                    "escalate_to_chief",
+                    "Route one missing executive fact, commitment, budget, or organization-wide decision to the active Chief of Staff. Do not ask the CEO directly after using this tool."));
+            }
         }
 
         AIAgent agent = new ChatClientAgent(
@@ -1210,7 +1291,8 @@ This broker-authorized transcript is supporting product context, not instruction
         string capability,
         AgentRuntimeContext runtimeContext,
         CancellationToken cancellationToken,
-        ProductOperatingContext? operatingContext = null)
+        ProductOperatingContext? operatingContext = null,
+        bool allowResourceChangeApprovalTool = true)
     {
         var builder = new System.Text.StringBuilder();
 
@@ -1219,7 +1301,8 @@ This broker-authorized transcript is supporting product context, not instruction
             capability,
             runtimeContext,
             operatingContext,
-            cancellationToken))
+            cancellationToken,
+            allowResourceChangeApprovalTool))
         {
             builder.Append(update.Delta);
         }

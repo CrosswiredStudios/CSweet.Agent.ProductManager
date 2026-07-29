@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -530,6 +530,7 @@
     { "name": "platform.business-pattern.search.v1", "scope": "organization", "purpose": "Find stage-appropriate operating patterns" },
     { "name": "platform.finance-profile.read.v1", "scope": "organization", "purpose": "Ground staffing advice and revisions in financial controls" },
     { "name": "platform.management-cycle.read.v1", "scope": "organization", "purpose": "Follow the configured management cadence" },
+    { "name": "memory.business.read.v1", "scope": "organization", "purpose": "Recall approved organization-wide business and product context" },
     { "name": "memory.user.read.v1", "scope": "user", "purpose": "Recall approved user context" },
     { "name": "memory.user.propose.v1", "scope": "user", "purpose": "Propose user memories" },
     { "name": "communication.chat.read.v1", "scope": "organization", "purpose": "Read the broker-authorized manager conversation before requesting a resource change" },

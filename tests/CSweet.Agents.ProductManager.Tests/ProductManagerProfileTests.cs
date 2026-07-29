@@ -1,6 +1,8 @@
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using CSweet.Agent.SDK;
 using CSweet.WorkManagement.Contracts;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace CSweet.Agents.ProductManager.Tests;
@@ -32,6 +34,7 @@ public sealed class ProductManagerProfileTests
         Assert.Contains(ProductManagerProfile.CreateCommunicationCapability, requires);
         Assert.Contains(ProductManagerProfile.SendCommunicationMessageCapability, requires);
         Assert.Contains(AgentLifecycleCapabilities.CompleteOnboarding, requires);
+        Assert.Contains(MemoryCapabilities.BusinessRead, requires);
     }
 
     [Fact]
@@ -84,6 +87,8 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("success measures", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("at most two", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("directly message your managing employee", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("approved organization and relationship memory", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Never open with a generic readiness message", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CEO, Chief of Staff, another human, or another agent", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Never maintain the Chief's hiring backlog", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Do not present a finalized role list", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
@@ -92,6 +97,185 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("primary startup goal", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("kanban board", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("resubmit", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ContextualOnboardingFallback_IdentifiesTheManagedDeliverableAndTeamApprovalNextStep()
+    {
+        var organizationId = Guid.NewGuid();
+        var profile = new BusinessProfileResponse(
+            organizationId,
+            "Super Awesome Games",
+            "Game Studio",
+            "Games",
+            "Build browser games.",
+            "Make classic games accessible on the web.",
+            "Validation",
+            ["Classic game fans"],
+            ["A browser-based Star Fox 64-inspired game"],
+            null,
+            ["United States"],
+            null,
+            [],
+            [],
+            null,
+            "UTC",
+            3,
+            0.8m,
+            new Dictionary<string, ProfileFieldProvenance>());
+        var finance = new FinancialOperatingProfileResponse(
+            organizationId,
+            "USD",
+            null,
+            null,
+            null,
+            null,
+            20_000m,
+            null,
+            3,
+            "Approval",
+            2);
+        var organization = new OrganizationSnapshotResponse(
+            organizationId,
+            "Active",
+            [],
+            [],
+            [new OrganizationObjective(
+                Guid.NewGuid(),
+                "Deliver a playable browser prototype",
+                "Validate the core gameplay loop.",
+                "Active",
+                null)],
+            [],
+            [],
+            DateTimeOffset.UtcNow);
+        var context = new ProductOperatingContext(profile, finance, organization, null, null, null, []);
+
+        var message = ProductManagerOrchestrator.BuildManagerDirectionRequest(context, "Chief of Staff");
+
+        Assert.Contains("Deliver a playable browser prototype", message, StringComparison.Ordinal);
+        Assert.Contains("Classic game fans", message, StringComparison.Ordinal);
+        Assert.Contains("smallest cross-functional team", message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("one proposal for your approval", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("ready to begin", message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Please confirm my mandate", message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Onboarding_UsesTheConfiguredModelForTheFirstManagerMessage()
+    {
+        var organizationId = Guid.NewGuid();
+        var installationId = Guid.NewGuid();
+        var productManagerId = Guid.NewGuid();
+        var managerId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        var providerProfileId = Guid.NewGuid();
+        var generatedOpening = "I’m managing the playable browser prototype for classic game fans. I’m now shaping the smallest team and will submit it for approval.";
+        SendCommunicationMessageRequest? sentMessage = null;
+        var profile = new BusinessProfileResponse(
+            organizationId,
+            "Super Awesome Games",
+            "Game Studio",
+            "Games",
+            "Build browser games.",
+            "Make classic games accessible on the web.",
+            "Validation",
+            ["Classic game fans"],
+            ["A browser-based Star Fox 64-inspired game"],
+            null,
+            ["United States"],
+            null,
+            [],
+            [],
+            null,
+            "UTC",
+            3,
+            0.8m,
+            new Dictionary<string, ProfileFieldProvenance>());
+        var organization = new OrganizationSnapshotResponse(
+            organizationId,
+            "Active",
+            [
+                new OrganizationPerson(
+                    productManagerId,
+                    ProductManagerProfile.DefaultDisplayName,
+                    "Agent",
+                    null,
+                    managerId,
+                    installationId,
+                    true),
+                new OrganizationPerson(managerId, "CEO", "Human", null, null, null, true)
+            ],
+            [],
+            [new OrganizationObjective(
+                Guid.NewGuid(),
+                "Deliver a playable browser prototype",
+                "Validate the core gameplay loop.",
+                "Active",
+                null)],
+            [],
+            [],
+            DateTimeOffset.UtcNow);
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<JsonElement, BusinessProfileResponse>(
+                PlatformCapabilities.BusinessProfileRead,
+                (_, _) => Task.FromResult(profile))
+            .RegisterCapability<JsonElement, OrganizationSnapshotResponse>(
+                PlatformCapabilities.OrganizationSnapshotRead,
+                (_, _) => Task.FromResult(organization))
+            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+                ProductManagerProfile.SendCommunicationMessageCapability,
+                (request, _) =>
+                {
+                    sentMessage = request;
+                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                })
+            .RegisterCapability<CompleteAgentOnboardingRequest, JsonElement>(
+                AgentLifecycleCapabilities.CompleteOnboarding,
+                (_, _) => Task.FromResult(JsonSerializer.SerializeToElement(new { completed = true })));
+        var chatClient = new CapturingChatClient(generatedOpening);
+        var agent = new ProductManagerAgent(
+            new TestLlmClientFactory(chatClient),
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+        var context = runtime.CreateContext(
+            organizationId.ToString("D"),
+            installationId.ToString("D"));
+        var configurationResult = await agent.ExecuteCapabilityAsync(
+            new AgentCapabilityRequest(
+                Guid.NewGuid(),
+                AgentConfigurationCapabilities.Update,
+                JsonSerializer.SerializeToElement(new UpdateAgentConfigurationRequest(
+                    new Dictionary<string, JsonElement>
+                    {
+                        ["llmProviderId"] = JsonSerializer.SerializeToElement(providerProfileId.ToString("D")),
+                        ["llmModel"] = JsonSerializer.SerializeToElement("test-model")
+                    }))),
+            context,
+            CancellationToken.None);
+        Assert.True(configurationResult.Succeeded);
+
+        await agent.HandleEventAsync(
+            new AgentEventEnvelope(
+                Guid.NewGuid(),
+                ProductManagerProfile.OnboardedEvent,
+                JsonSerializer.SerializeToElement(new AgentOnboardedEvent(
+                    organizationId,
+                    productManagerId,
+                    managerId,
+                    conversationId,
+                    DateTimeOffset.UtcNow)),
+                DateTimeOffset.UtcNow),
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(sentMessage);
+        Assert.Equal(conversationId, sentMessage.ChatId);
+        Assert.Equal(generatedOpening, sentMessage.Content);
+        Assert.Contains("Super Awesome Games", chatClient.Prompt, StringComparison.Ordinal);
+        Assert.Contains("Deliver a playable browser prototype", chatClient.Prompt, StringComparison.Ordinal);
+        Assert.Contains("approved C-Sweet organization", chatClient.Prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not send a generic welcome", chatClient.Prompt, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -124,6 +308,12 @@ public sealed class ProductManagerProfileTests
         Assert.True(schema.Settings["proactivePlanning"].GetBoolean());
         Assert.Equal(3, schema.Settings["maxPlanItems"].GetInt32());
         Assert.Equal(2, schema.Settings["maxAlternatives"].GetInt32());
+        var maxPlanItems = schema.Fields.Single(field => field.Key == "maxPlanItems");
+        Assert.Equal(1, maxPlanItems.Minimum);
+        Assert.Equal(3, maxPlanItems.Maximum);
+        var maxAlternatives = schema.Fields.Single(field => field.Key == "maxAlternatives");
+        Assert.Equal(0, maxAlternatives.Minimum);
+        Assert.Equal(2, maxAlternatives.Maximum);
 
         var invalid = await agent.ExecuteCapabilityAsync(
             new AgentCapabilityRequest(
@@ -327,6 +517,60 @@ public sealed class ProductManagerProfileTests
     }
 
     [Fact]
+    public async Task RejectedTeam_AsksManagerForOneFocusedRefinement()
+    {
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var response = ResourceChange(
+            requestId,
+            organizationId,
+            Guid.NewGuid(),
+            "Validate the first customer workflow",
+            "Rejected") with
+        {
+            DecisionComment = "The proposed team is too broad."
+        };
+        SendCommunicationMessageRequest? messageRequest = null;
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
+                PlatformCapabilities.ResourceChangeRead,
+                (_, _) => Task.FromResult(new ResourceChangeReadResponse([response])))
+            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+                ProductManagerProfile.SendCommunicationMessageCapability,
+                (request, _) =>
+                {
+                    messageRequest = request;
+                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                });
+        var context = runtime.CreateContext(
+            organizationId.ToString("D"),
+            response.RequesterInstallationId.ToString("D"));
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+
+        await agent.HandleResourceChangeDecisionAsync(
+            new AgentEventEnvelope(
+                Guid.NewGuid(),
+                ManagementEvents.ResourceChangeDecided,
+                JsonSerializer.SerializeToElement(new ResourceChangeDecisionEvent(
+                    requestId,
+                    organizationId,
+                    response.RequesterOrganizationUserId,
+                    response.ManagerOrganizationUserId,
+                    "Rejected",
+                    DateTimeOffset.UtcNow)),
+                DateTimeOffset.UtcNow),
+            context,
+            CancellationToken.None);
+
+        Assert.NotNull(messageRequest);
+        Assert.Contains("The proposed team is too broad.", messageRequest.Content, StringComparison.Ordinal);
+        Assert.Contains("What single outcome, role, or constraint", messageRequest.Content, StringComparison.Ordinal);
+        Assert.EndsWith("?", messageRequest.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ProductPlan_HasPreferredCourse_TwoAlternatives_AndHiringOrder()
     {
         var brief = new ProductRoleBriefResponse(
@@ -458,5 +702,44 @@ public sealed class ProductManagerProfileTests
             null,
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow);
+    }
+
+    private sealed class TestLlmClientFactory(IChatClient chatClient) : IAgentLlmClientFactory
+    {
+        public Task<IChatClient> CreateChatClientAsync(
+            AgentLlmSelection selection,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(chatClient);
+    }
+
+    private sealed class CapturingChatClient(string response) : IChatClient
+    {
+        public string Prompt { get; private set; } = string.Empty;
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            CancellationToken cancellationToken = default)
+        {
+            Prompt = string.Join("\n", messages.Select(message => message.Text));
+            return Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, response)));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages,
+            ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Prompt = string.Join("\n", messages.Select(message => message.Text));
+            await Task.Yield();
+            yield return new ChatResponseUpdate(ChatRole.Assistant, response);
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) =>
+            serviceType.IsInstanceOfType(this) ? this : null;
+
+        public void Dispose()
+        {
+        }
     }
 }
