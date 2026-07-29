@@ -2,7 +2,7 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.0.2` and manifest protocol `2.0`.
+catalog was last verified against package version `1.0.3` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
 `CSweet.Agent.SDK` 1.0; manifest-audit tests reject names missing from that catalog.
@@ -62,7 +62,10 @@ policy at runtime.
 | `platform.management.resource-change.read.v1` | organization | Read the Product Manager's pending and decided team snapshots. |
 
 The manager is resolved from the authoritative organization snapshot and may be the CEO, Chief of
-Staff, another human employee, or another agent.
+Staff, another human employee, or another agent. A finalized team created while another executive
+is speaking with the Product Manager is routed into the protected manager conversation. Agent
+managers receive the atomic request without borrowing the executive's chat turn; human managers
+must review it from their own direct conversation.
 
 ### Chief of Staff coordination
 

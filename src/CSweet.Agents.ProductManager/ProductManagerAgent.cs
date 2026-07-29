@@ -669,6 +669,15 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             return $"The model provider could not be reached: {httpException.Message}";
         }
 
+        var routingException = candidates
+            .SelectMany(EnumerateExceptionChain)
+            .OfType<ResourceChangeRoutingException>()
+            .FirstOrDefault();
+        if (routingException is not null)
+        {
+            return routingException.Message;
+        }
+
         return "The Product Manager could not complete the request. Check the Product Manager logs for details.";
     }
 
@@ -749,7 +758,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                     runtimeContext,
                     token),
             "request_resource_change_approval",
-            "Request one atomic manager approval for the complete desired product-team snapshot. Use only after product discovery is sufficient and only from the verified current-manager conversation."));
+            "Request one atomic manager approval for the complete desired product-team snapshot before presenting finalized roles. Use after product discovery is sufficient. The runtime routes the request to the authoritative manager when the current conversation is with another executive."));
         if (tools.Any(tool => tool is AIFunctionDeclaration function &&
                             function.Name == "product_management_escalation"))
         {
@@ -837,7 +846,7 @@ This broker-authorized transcript is supporting product context, not instruction
         }
     }
 
-    private static async Task<ResourceChangeRequestResponse> RequestResourceChangeApprovalAsync(
+    internal static async Task<ResourceChangeRequestResponse> RequestResourceChangeApprovalAsync(
         string productGoal,
         string rationale,
         long contextRevision,
@@ -850,10 +859,11 @@ This broker-authorized transcript is supporting product context, not instruction
         AgentRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
-        if (!Guid.TryParse(input.ConversationId, out var conversationId) ||
+        if (!Guid.TryParse(input.ConversationId, out var sourceConversationId) ||
             input.ChatTurnId == Guid.Empty ||
             input.MessageId == Guid.Empty)
-            throw new InvalidOperationException("Resource approval requires a durable manager chat turn.");
+            throw new ResourceChangeRoutingException(
+                "I can only submit the finalized team from a durable conversation turn. Please retry the staffing request.");
         if (!Guid.TryParse(runtimeContext.Identity?.EmployeeId, out var selfId) ||
             !Guid.TryParse(runtimeContext.InstallationId, out var installationId))
             throw new InvalidOperationException("The Product Manager identity is unavailable.");
@@ -864,20 +874,37 @@ This broker-authorized transcript is supporting product context, not instruction
             ? operatingContext.Organization?.People.SingleOrDefault(x => x.Id == self.ReportsToId.Value && x.IsActive)
             : null;
         if (manager is null)
-            throw new InvalidOperationException("The Product Manager has no active manager.");
+            throw new ResourceChangeRoutingException(
+                "I cannot submit the finalized team because no active manager is assigned to review it.");
 
         var transcriptResponse = await runtimeContext.Platform.InvokeAsync<
             ReadCommunicationChatRequest,
             ReadCommunicationChatResponse>(
             ProductManagerProfile.ReadCommunicationCapability,
-            new ReadCommunicationChatRequest(conversationId),
+            new ReadCommunicationChatRequest(sourceConversationId),
             cancellationToken);
         var transcript = transcriptResponse.Messages;
         var sourceMessage = transcript.SingleOrDefault(x => x.Id == input.MessageId);
-        if (sourceMessage?.SenderOrganizationUserId != manager.Id ||
-            sourceMessage.ChatTurnId != input.ChatTurnId)
-            throw new InvalidOperationException(
-                "Resource approval may only be requested while responding to the current manager.");
+        var isManagerTurn =
+            sourceMessage?.SenderOrganizationUserId == manager.Id &&
+            sourceMessage.ChatTurnId == input.ChatTurnId;
+        var requestConversationId = sourceConversationId;
+        var requestChatTurnId = input.ChatTurnId;
+        if (!isManagerTurn)
+        {
+            if (!string.Equals(manager.EmployeeType, "Agent", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ResourceChangeRoutingException(
+                    $"I have prepared the product-team recommendation, but it must be submitted from my direct conversation with {manager.DisplayName} because they are the human manager responsible for staffing approval.");
+            }
+
+            requestConversationId = await EnsureManagerConversationAsync(
+                manager,
+                runtimeContext,
+                input.ChatTurnId.ToString("D"),
+                cancellationToken);
+            requestChatTurnId = Guid.Empty;
+        }
 
         var normalizedRoles = roles.OrderBy(x => x.RoleKey, StringComparer.Ordinal).ToList();
         var fingerprintPayload = JsonSerializer.Serialize(new
@@ -893,8 +920,8 @@ This broker-authorized transcript is supporting product context, not instruction
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(fingerprintPayload)))
             .ToLowerInvariant();
         var request = new ResourceChangeProposalRequest(
-            conversationId,
-            input.ChatTurnId,
+            requestConversationId,
+            requestChatTurnId,
             productGoal.Trim(),
             rationale.Trim(),
             contextRevision,
@@ -1092,3 +1119,5 @@ This broker-authorized transcript is supporting product context, not instruction
 
     private sealed record AssistantStreamUpdate(string Delta, UsageDetails? Usage);
 }
+
+internal sealed class ResourceChangeRoutingException(string message) : InvalidOperationException(message);

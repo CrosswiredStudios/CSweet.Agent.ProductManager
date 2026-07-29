@@ -41,6 +41,8 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("directly message your managing employee", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("CEO, Chief of Staff, another human, or another agent", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Never maintain the Chief's hiring backlog", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Do not present a finalized role list", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("routes the request to your authoritative manager", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("Do not provide technical architecture", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
     }
 

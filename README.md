@@ -10,6 +10,11 @@ The agent receives exact-installation durable events and capability work. Onboar
 
 Chief of Staff coordination uses install-time, same-organization capability bindings. Payload identities remain untrusted and neither agent can select a target installation. Provider credentials and runtime transport details never enter agent code.
 
+When an executive finalizes a product-team recommendation outside the Product Manager's reporting
+conversation, the runtime resolves the current manager and routes the atomic resource-change
+request into the protected manager chat. Agent managers receive a targeted durable event; human
+managers retain the stricter requirement that approval originate from their direct conversation.
+
 ## Build and test
 
 ```powershell
