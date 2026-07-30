@@ -1,7 +1,7 @@
 # C-Sweet Product Manager
 
-First-party Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 1.1.1 and manifest protocol v2.
-The agent package version is `1.3.0`.
+First-party Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 2.2.0 and manifest protocol v2.
+The agent package version is `1.3.1`.
 
 It owns product outcomes, customer discovery, product strategy, prioritization, roadmaps, requirements, success measures, delivery alignment, and product-team design. It does not choose technical architecture, write production code, make legal conclusions, source candidates, hire workers, or spend money.
 
@@ -41,7 +41,7 @@ dotnet build CSweet.Agent.ProductManager.slnx
 dotnet test CSweet.Agent.ProductManager.slnx
 ```
 
-Requirements are .NET 10, `CSweet.Agent.SDK` 1.1.1, `CSweet.Memory`, an approved protocol-v2 installation, an active managing employee, and the grants in [GRANTS.md](GRANTS.md).
+Requirements are .NET 10, `CSweet.Agent.SDK` 2.2.0, `CSweet.Memory`, an approved protocol-v2 installation, an active managing employee, and the grants in [GRANTS.md](GRANTS.md).
 
 ## SDK 1.1.1 authoring contract
 

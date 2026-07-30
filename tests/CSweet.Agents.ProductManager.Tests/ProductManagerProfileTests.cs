@@ -75,7 +75,7 @@ public sealed class ProductManagerProfileTests
             "src",
             "CSweet.Agents.ProductManager",
             "CSweet.Agents.ProductManager.csproj"));
-        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.0.1", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.2.0", project, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
