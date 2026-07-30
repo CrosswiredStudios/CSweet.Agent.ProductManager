@@ -64,6 +64,43 @@ public sealed class ResourceChangeRoutingTests
     }
 
     [Fact]
+    public async Task ManagerTurn_WithLegacyTranscriptWithoutTurnId_RetainsSourceConversationAndTurn()
+    {
+        var fixture = new RoutingFixture(
+            managerType: "Human",
+            sourceIsManager: true,
+            includeTranscriptTurnId: false);
+
+        await fixture.SubmitAsync();
+
+        Assert.Equal(fixture.SourceConversationId, fixture.Proposal!.ConversationId);
+        Assert.Equal(fixture.SourceTurnId, fixture.Proposal.ChatTurnId);
+        Assert.Equal(0, fixture.ManagerChatCreateCount);
+    }
+
+    [Fact]
+    public async Task MissingOptionalCollections_AreNormalizedAndSubmitted()
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true);
+
+        await fixture.SubmitAsync(omitOptionalCollections: true);
+
+        Assert.Empty(fixture.Proposal!.Assumptions);
+        Assert.Empty(fixture.Proposal.Constraints);
+    }
+
+    [Fact]
+    public async Task TeamMetadata_IsBoundedBeforeSubmission()
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true);
+
+        await fixture.SubmitAsync(teamName: new string('T', 200));
+
+        Assert.Equal(160, fixture.Proposal!.TeamName!.Length);
+        Assert.Equal("product-team:", fixture.Proposal.TeamKey![..13]);
+    }
+
+    [Fact]
     public async Task ExecutiveTurn_WithAgentManager_RoutesToProtectedManagerConversation()
     {
         var fixture = new RoutingFixture(managerType: "Agent", sourceIsManager: false);
@@ -80,7 +117,8 @@ public sealed class ResourceChangeRoutingTests
     {
         var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: false);
 
-        var exception = await Assert.ThrowsAsync<ResourceChangeRoutingException>(fixture.SubmitAsync);
+        var exception = await Assert.ThrowsAsync<ResourceChangeRoutingException>(
+            () => fixture.SubmitAsync());
 
         Assert.Contains("direct conversation", exception.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Null(fixture.Proposal);
@@ -104,7 +142,10 @@ public sealed class ResourceChangeRoutingTests
         private readonly ProductOperatingContext _operatingContext;
         private readonly AssistantCapabilityInput _input;
 
-        public RoutingFixture(string managerType, bool sourceIsManager)
+        public RoutingFixture(
+            string managerType,
+            bool sourceIsManager,
+            bool includeTranscriptTurnId = true)
         {
             var organizationId = Guid.NewGuid();
             var installationId = Guid.NewGuid();
@@ -127,7 +168,7 @@ public sealed class ResourceChangeRoutingTests
                             sourceSenderId,
                             "Finalize the product team.",
                             DateTimeOffset.UtcNow,
-                            SourceTurnId)
+                            includeTranscriptTurnId ? SourceTurnId : null)
                     ])))
                 .RegisterCapability<CreateCommunicationChatRequest, CommunicationHubActionResponse>(
                     ProductManagerProfile.CreateCommunicationCapability,
@@ -222,7 +263,9 @@ public sealed class ResourceChangeRoutingTests
         public int ManagerChatCreateCount { get; private set; }
         public ResourceChangeProposalRequest? Proposal { get; private set; }
 
-        public async Task SubmitAsync()
+        public async Task SubmitAsync(
+            bool omitOptionalCollections = false,
+            string teamName = "Product")
         {
             _ = await ProductManagerAgent.RequestResourceChangeApprovalAsync(
                 "Validate and ship the first playable browser game",
@@ -231,7 +274,7 @@ public sealed class ResourceChangeRoutingTests
                 [
                     new ResourceChangeRole(
                         "web3d",
-                        "Product",
+                        teamName,
                         "Lead Web3D Developer",
                         "Own browser rendering and core mechanics.",
                         1,
@@ -242,8 +285,8 @@ public sealed class ResourceChangeRoutingTests
                         null,
                         null)
                 ],
-                ["Free agents are acceptable."],
-                ["No paid workforce budget."],
+                omitOptionalCollections ? null : ["Free agents are acceptable."],
+                omitOptionalCollections ? null : ["No paid workforce budget."],
                 null,
                 _input,
                 _operatingContext,
