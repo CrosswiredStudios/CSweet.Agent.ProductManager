@@ -2,7 +2,7 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.2.1` and manifest protocol `2.0`.
+catalog was last verified against package version `1.3.0` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
 `CSweet.Agent.SDK` 1.0; manifest-audit tests reject names missing from that catalog.
@@ -37,6 +37,7 @@ policy at runtime.
 | `platform.business-profile.read.v1` | organization | Read the authoritative business and product context. |
 | `platform.business-profile.propose-update.v1` | organization | Propose sensitive or inferred business-profile changes for review. |
 | `platform.organization.snapshot.read.v1` | organization | Validate identity, manager, reporting lines, objectives, workstreams, roles, and available workers. |
+| `platform.team-roster.read.v1` | team | Read only this employee instance's approved team roster and team-specific roles; this grants no chat, board, tool, memory, or agent-to-agent authority. |
 | `platform.business-pattern.search.v1` | organization | Find stage-appropriate product and team patterns. |
 | `platform.finance-profile.read.v1` | organization | Ground product-team recommendations in financial goals and controls. |
 | `platform.management-cycle.read.v1` | organization | Follow the configured management cadence. |

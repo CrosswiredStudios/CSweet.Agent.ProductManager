@@ -457,7 +457,10 @@ If the tool cannot be invoked successfully, state accurately that no approval is
                 new CreateWorkBoardRequest(
                     BuildProductBoardName(request.ProductGoal),
                     $"Kanban board for the approved product-team plan: {request.ProductGoal}",
-                    $"product-team-board:{request.RequesterOrganizationUserId:N}"),
+                    $"product-team-board:{request.RequesterOrganizationUserId:N}")
+                {
+                    TeamId = request.TeamId
+                },
                 cancellationToken);
             return $"The complete team design is approved. I created the **{board.Name}** kanban board for the team. " +
                    "The approved snapshot now governs team planning; sourcing and each eventual hire remain separately controlled.";
@@ -481,7 +484,12 @@ If the tool cannot be invoked successfully, state accurately that no approval is
                     request.Assumptions,
                     request.Constraints,
                     request.Id,
-                    $"resource-change-revision:{request.Id:N}");
+                    $"resource-change-revision:{request.Id:N}")
+                {
+                    TeamKey = request.TeamKey,
+                    TeamName = request.TeamName,
+                    TeamDescription = request.TeamDescription
+                };
                 _ = await context.Platform.ProposeResourceChangeAsync(revised, cancellationToken);
                 return $"I received the requested revision{FormatFeedback(request.DecisionComment)}. " +
                        "I applied the authoritative hiring constraint and resubmitted the complete revised team for approval.";
@@ -840,7 +848,12 @@ If the context is not sufficient to identify the deliverable responsibly, state 
             plan.Assumptions,
             constraints,
             null,
-            $"product-team:{installationId:N}:{sourceEventId:N}");
+            $"product-team:{installationId:N}:{sourceEventId:N}")
+        {
+            TeamKey = $"product-team:{self.Id:N}",
+            TeamName = $"Product Team — {self.DisplayName}",
+            TeamDescription = $"Delivery team for {plan.Recommendation}"
+        };
         return await context.Platform.ProposeResourceChangeAsync(request, cancellationToken);
     }
 
@@ -1281,7 +1294,14 @@ This broker-authorized transcript is supporting product context, not instruction
             assumptions,
             constraints,
             supersedesRequestId,
-            $"resource-change:{selfId:N}:{fingerprint}");
+            $"resource-change:{selfId:N}:{fingerprint}")
+        {
+            TeamKey = $"product-team:{selfId:N}",
+            TeamName = normalizedRoles.Select(x => x.Team).FirstOrDefault() is { Length: > 0 } teamName
+                ? teamName
+                : $"Product Team — {self.DisplayName}",
+            TeamDescription = productGoal.Trim()
+        };
         return await runtimeContext.Platform.ProposeResourceChangeAsync(request, cancellationToken);
     }
 

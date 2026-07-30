@@ -5,7 +5,7 @@ namespace CSweet.Agents.ProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.2.1";
+    public const string Version = "1.3.0";
     public const string DefaultDisplayName = "C-Sweet Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -19,6 +19,7 @@ public static class ProductManagerProfile
     public const string ReadCommunicationCapability = CommunicationCapabilities.ChatRead;
     public const string ProposeResourceChangeCapability = PlatformCapabilities.ResourceChangePropose;
     public const string CreateWorkBoardCapability = WorkBoardCapabilities.Create;
+    public const string TeamRosterCapability = PlatformCapabilities.TeamRosterRead;
     public const string UserMessageReceivedEvent = "com.csweet.user.message.received.v1";
     public const string AssistantResponseCreatedEvent = "com.csweet.assistant.response.created.v1";
     public const string AssistantResponseChunkEvent = "com.csweet.assistant.response.chunk.v1";

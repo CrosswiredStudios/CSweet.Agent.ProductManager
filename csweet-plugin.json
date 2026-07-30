@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
-  "version": "1.2.1",
+  "version": "1.3.0",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -522,6 +522,11 @@
     }
   ],
   "requires": [
+    {
+      "name": "platform.team-roster.read.v1",
+      "scope": "team",
+      "purpose": "Read only this Product Manager employee's approved team roster and team-specific roles"
+    },
     { "name": "platform.user-input.request.v1", "scope": "organization", "purpose": "Ask the owner one bounded structured product question" },
     { "name": "platform.llm.chat-stream.v1", "scope": "organization", "purpose": "Generate Product Manager responses" },
     { "name": "platform.business-profile.read.v1", "scope": "organization", "purpose": "Ground advice in the authoritative business profile" },

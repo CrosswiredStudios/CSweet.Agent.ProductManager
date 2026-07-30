@@ -28,6 +28,7 @@ public sealed class ProductManagerProfileTests
         Assert.Contains(ProductManagementCapabilities.PlanReview, requires);
         Assert.Contains(ProductManagementCapabilities.Escalation, requires);
         Assert.Contains(WorkBoardCapabilities.Create, requires);
+        Assert.Contains(ProductManagerProfile.TeamRosterCapability, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringRecommendationList, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringRecommendationUpsert, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringWorkflowStage, requires);
