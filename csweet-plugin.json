@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -460,11 +460,7 @@
             "properties": {
               "llmProviderId": { "type": "string" },
               "llmModel": { "type": "string" },
-              "responseTone": { "type": "string" },
-              "proactivePlanning": { "type": "boolean" },
-              "maxPlanItems": { "type": "number" },
-              "maxAlternatives": { "type": "number" },
-              "customInstructions": { "type": "string" }
+              "responseTone": { "type": "string" }
             }
           }
         }
@@ -486,11 +482,7 @@
             "properties": {
               "llmProviderId": { "type": "string" },
               "llmModel": { "type": "string" },
-              "responseTone": { "type": "string", "enum": ["concise", "balanced", "detailed"] },
-              "proactivePlanning": { "type": "boolean" },
-              "maxPlanItems": { "type": "number", "minimum": 1, "maximum": 3 },
-              "maxAlternatives": { "type": "number", "minimum": 0, "maximum": 2 },
-              "customInstructions": { "type": "string" }
+              "responseTone": { "type": "string", "enum": ["concise", "balanced", "detailed"] }
             }
           }
         }
@@ -508,11 +500,7 @@
             "properties": {
               "llmProviderId": { "type": "string" },
               "llmModel": { "type": "string" },
-              "responseTone": { "type": "string" },
-              "proactivePlanning": { "type": "boolean" },
-              "maxPlanItems": { "type": "number" },
-              "maxAlternatives": { "type": "number" },
-              "customInstructions": { "type": "string" }
+              "responseTone": { "type": "string" }
             }
           }
         }
@@ -558,13 +546,35 @@
     ]
   },
   "configuration": [
-    { "key": "llmProviderId", "type": "provider", "label": "LLM provider", "required": true, "secret": false },
-    { "key": "llmModel", "type": "model", "label": "Model", "required": true, "secret": false },
-    { "key": "responseTone", "type": "select", "label": "Response tone", "required": true, "secret": false },
-    { "key": "proactivePlanning", "type": "boolean", "label": "Proactive planning", "required": true, "secret": false },
-    { "key": "maxPlanItems", "type": "number", "label": "Maximum plan items", "required": true, "secret": false },
-    { "key": "maxAlternatives", "type": "number", "label": "Maximum alternatives", "required": true, "secret": false },
-    { "key": "customInstructions", "type": "textarea", "label": "Custom instructions", "required": false, "secret": false }
+    {
+      "key": "llmProviderId",
+      "type": "provider",
+      "label": "LLM provider",
+      "required": true,
+      "secret": false,
+      "description": "Selects the LLM provider profile this employee uses for model-backed work."
+    },
+    {
+      "key": "llmModel",
+      "type": "model",
+      "label": "Model",
+      "required": true,
+      "secret": false,
+      "description": "Selects the chat model from the chosen provider profile."
+    },
+    {
+      "key": "responseTone",
+      "type": "select",
+      "label": "Response tone",
+      "required": true,
+      "secret": false,
+      "description": "Controls how much detail the employee uses in responses.",
+      "options": [
+        { "value": "concise", "label": "Concise" },
+        { "value": "balanced", "label": "Balanced" },
+        { "value": "detailed", "label": "Detailed" }
+      ]
+    }
   ],
   "credentials": [],
   "webAccess": {

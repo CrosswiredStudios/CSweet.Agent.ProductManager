@@ -65,36 +65,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 ],
                 required: true,
                 description: "Controls how much detail the assistant uses in executive responses.",
-                defaultValue: "concise")
-            .Boolean(
-                "proactivePlanning",
-                "Proactive Planning",
-                required: true,
-                description: "Allows the assistant to suggest product and product-team plans without being explicitly asked.",
-                defaultValue: true)
-            .Number(
-                "maxPlanItems",
-                "Maximum Plan Items",
-                required: true,
-                description: "Caps the number of primary items in a product or product-team plan.",
-                minimum: 1,
-                maximum: 3,
-                step: 1,
-                defaultValue: 3)
-            .Number(
-                "maxAlternatives",
-                "Maximum Alternatives",
-                required: true,
-                description: "Caps materially useful alternatives in an executive recommendation.",
-                minimum: 0,
-                maximum: 2,
-                step: 1,
-                defaultValue: 2)
-            .TextArea(
-                "customInstructions",
-                "Custom Instructions",
-                description: "Optional operating guidance that is appended to the assistant's built-in instructions.",
-                placeholder: "Example: Prefer outcome roadmaps with explicit evidence and release criteria.");
+                defaultValue: "concise");
     }
 
     public override async Task HandleEventAsync(

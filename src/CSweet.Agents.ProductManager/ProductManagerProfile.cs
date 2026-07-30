@@ -5,14 +5,14 @@ namespace CSweet.Agents.ProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.3.2";
+    public const string Version = "1.4.0";
     public const string DefaultDisplayName = "C-Sweet Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
     public const string SummarizeActivityCapability = AssistantCapabilities.SummarizeActivity;
     public const string PlanWorkCapability = AssistantCapabilities.PlanWork;
     public const string ManagementCheckInCapability = ManagementCapabilities.CheckIn;
-    public const string ConfigurationSchemaVersion = "1.0";
+    public const string ConfigurationSchemaVersion = "2.0";
     public const string OnboardedEvent = AgentLifecycleEvents.Onboarded;
     public const string CreateCommunicationCapability = CommunicationCapabilities.ChatCreate;
     public const string SendCommunicationMessageCapability = CommunicationCapabilities.MessageSend;

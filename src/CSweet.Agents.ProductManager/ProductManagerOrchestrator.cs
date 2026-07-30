@@ -54,15 +54,9 @@ public sealed class ProductManagerOrchestrator(ILogger<ProductManagerOrchestrato
                 "Answer within product management, use authoritative context, and route executive gaps through the managing employee."
         };
         var tone = settings.GetString("responseTone") ?? "concise";
-        var proactivePlanning = settings.GetBoolean("proactivePlanning", true);
-        var maxItems = settings.GetDecimal("maxPlanItems") is { } value ? (int)value : 3;
-        var maxAlternatives = settings.GetDecimal("maxAlternatives") is { } alternativeValue ? (int)alternativeValue : 2;
-        var custom = settings.GetString("customInstructions");
         return $$"""
 {{operatingInstruction}}
-Response tone: {{tone}}. Use no more than {{maxItems}} primary plan items or {{maxAlternatives}} materially different alternatives.
-Proactive product and team suggestions are {{(proactivePlanning ? "enabled" : "disabled unless explicitly requested")}}.
-{{(string.IsNullOrWhiteSpace(custom) ? string.Empty : $"Manager-approved configuration: {custom}")}}
+Response tone: {{tone}}.
 
 <authoritative_product_context>
 {{JsonSerializer.Serialize(context, JsonOptions)}}

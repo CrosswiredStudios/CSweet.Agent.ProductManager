@@ -66,9 +66,19 @@ public sealed class ProductManagerProfileTests
             root.GetProperty("events").GetProperty("subscribes").EnumerateArray()
                 .Select(item => item.GetString()!).ToArray());
         Assert.Equal(
-            ["llmProviderId", "llmModel", "responseTone", "proactivePlanning", "maxPlanItems", "maxAlternatives", "customInstructions"],
+            ["llmProviderId", "llmModel", "responseTone"],
             root.GetProperty("configuration").EnumerateArray()
                 .Select(item => item.GetProperty("key").GetString()!).ToArray());
+        Assert.All(
+            root.GetProperty("configuration").EnumerateArray(),
+            field => Assert.False(string.IsNullOrWhiteSpace(
+                field.GetProperty("description").GetString())));
+        var manifestTone = root.GetProperty("configuration").EnumerateArray()
+            .Single(field => field.GetProperty("key").GetString() == "responseTone");
+        Assert.Equal(
+            ["concise", "balanced", "detailed"],
+            manifestTone.GetProperty("options").EnumerateArray()
+                .Select(option => option.GetProperty("value").GetString()!).ToArray());
 
         var project = await File.ReadAllTextAsync(Path.Combine(
             Path.GetDirectoryName(manifestPath)!,
@@ -311,22 +321,13 @@ public sealed class ProductManagerProfileTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         Assert.NotNull(schema);
         Assert.Equal(
-            ["llmProviderId", "llmModel", "responseTone", "proactivePlanning", "maxPlanItems", "maxAlternatives", "customInstructions"],
+            ["llmProviderId", "llmModel", "responseTone"],
             schema.Fields.Select(field => field.Key).ToArray());
         var tone = schema.Fields.Single(field => field.Key == "responseTone");
         Assert.Equal(
             ["concise", "balanced", "detailed"],
             tone.Options!.Select(option => option.Value).ToArray());
         Assert.Equal("concise", schema.Settings["responseTone"].GetString());
-        Assert.True(schema.Settings["proactivePlanning"].GetBoolean());
-        Assert.Equal(3, schema.Settings["maxPlanItems"].GetInt32());
-        Assert.Equal(2, schema.Settings["maxAlternatives"].GetInt32());
-        var maxPlanItems = schema.Fields.Single(field => field.Key == "maxPlanItems");
-        Assert.Equal(1, maxPlanItems.Minimum);
-        Assert.Equal(3, maxPlanItems.Maximum);
-        var maxAlternatives = schema.Fields.Single(field => field.Key == "maxAlternatives");
-        Assert.Equal(0, maxAlternatives.Minimum);
-        Assert.Equal(2, maxAlternatives.Maximum);
 
         var invalid = await agent.ExecuteCapabilityAsync(
             new AgentCapabilityRequest(
@@ -352,11 +353,7 @@ public sealed class ProductManagerProfileTests
                     {
                         ["llmProviderId"] = JsonSerializer.SerializeToElement(Guid.NewGuid().ToString("D")),
                         ["llmModel"] = JsonSerializer.SerializeToElement("model"),
-                        ["responseTone"] = JsonSerializer.SerializeToElement("concise"),
-                        ["proactivePlanning"] = JsonSerializer.SerializeToElement(true),
-                        ["maxPlanItems"] = JsonSerializer.SerializeToElement(3),
-                        ["maxAlternatives"] = JsonSerializer.SerializeToElement(2),
-                        ["customInstructions"] = JsonSerializer.SerializeToElement("Prefer outcome roadmaps.")
+                        ["responseTone"] = JsonSerializer.SerializeToElement("concise")
                     }))),
             context,
             CancellationToken.None);
