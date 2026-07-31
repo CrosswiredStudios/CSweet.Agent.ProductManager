@@ -1,7 +1,7 @@
 # C-Sweet Product Manager
 
 First-party Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 2.4.0 and manifest protocol v2.
-The agent package version is `1.5.2`.
+The agent package version is `1.5.3`.
 
 It owns product outcomes, customer discovery, product strategy, prioritization, roadmaps, requirements, success measures, delivery alignment, and product-team design. It does not choose technical architecture, write production code, make legal conclusions, source candidates, hire workers, or spend money.
 

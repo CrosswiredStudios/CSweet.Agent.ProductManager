@@ -52,6 +52,41 @@ public sealed class ResourceChangeRoutingTests
     }
 
     [Fact]
+    public void ApprovalMessage_IsTerminalOnlyInItsOriginatingConversationTurn()
+    {
+        var conversationId = Guid.NewGuid();
+        var turnId = Guid.NewGuid();
+        var response = new ResourceChangeRequestResponse(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            conversationId,
+            turnId,
+            "Technical spike",
+            "Validate feasibility.",
+            1,
+            [],
+            [],
+            [],
+            [],
+            null,
+            "Pending",
+            "DeliveredInChat",
+            null,
+            DateTimeOffset.UtcNow,
+            null);
+
+        Assert.True(ProductManagerAgent.ShouldUseApprovalMessageAsTerminal(
+            response, conversationId.ToString("D"), turnId));
+        Assert.False(ProductManagerAgent.ShouldUseApprovalMessageAsTerminal(
+            response, Guid.NewGuid().ToString("D"), turnId));
+        Assert.False(ProductManagerAgent.ShouldUseApprovalMessageAsTerminal(
+            response, conversationId.ToString("D"), Guid.NewGuid()));
+    }
+
+    [Fact]
     public async Task ManagerTurn_RetainsSourceConversationAndTurn()
     {
         var fixture = new RoutingFixture(managerType: "Agent", sourceIsManager: true);

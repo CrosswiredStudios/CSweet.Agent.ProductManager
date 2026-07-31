@@ -16,6 +16,8 @@ namespace CSweet.Agents.ProductManager;
 public sealed class ProductManagerAgent : CSweetAgentBase
 {
     private const string ResourceChangeApprovalToolName = "request_resource_change_approval";
+    internal const string TerminalResourceChangeChunkKind = "terminal-resource-change";
+    internal const string ResourceChangeRequestIdMetadataKey = "resourceChangeRequestId";
 
     private readonly IAgentLlmClientFactory? _llmClientFactory;
     private readonly ILogger<ProductManagerAgent> _logger;
@@ -229,6 +231,39 @@ Use its structured result as the only authority for whether an approval is pendi
                 stopwatch.ElapsedMilliseconds,
                 usage: null,
                 exception.Message,
+                cancellationToken);
+            return;
+        }
+
+        if (submissionState.ToolResult is { Succeeded: true, Request: { } submittedRequest } &&
+            ShouldUseApprovalMessageAsTerminal(submittedRequest, conversationId, incoming.TurnId))
+        {
+            var durableOutcome = $"Approval request {submittedRequest.Id:D} is {submittedRequest.Status}.";
+            await PublishChunkAsync(context, message.EventId, new AssistantResponseChunk(
+                conversationId,
+                sequence,
+                Delta: string.Empty,
+                IsFinal: true,
+                TurnId: incoming.TurnId,
+                Kind: TerminalResourceChangeChunkKind,
+                Metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    [ResourceChangeRequestIdMetadataKey] = submittedRequest.Id.ToString("D")
+                },
+                Attempt: incoming.Attempt), cancellationToken);
+            _logger.LogInformation(
+                "Product Manager ended conversation turn {ChatTurnId} with durable approval request {RequestId}; no follow-up narrative was emitted.",
+                incoming.TurnId,
+                submittedRequest.Id);
+            await WriteRunLogAsync(
+                incoming.ProviderProfileId,
+                incoming.Message,
+                durableOutcome,
+                "Completed",
+                startedAt,
+                stopwatch.ElapsedMilliseconds,
+                usage,
+                failureMessage: null,
                 cancellationToken);
             return;
         }
@@ -1516,6 +1551,15 @@ This broker-authorized transcript is supporting product context, not instruction
             value.Contains("manager", StringComparison.Ordinal);
         return submissionVerb && approvalTarget;
     }
+
+    internal static bool ShouldUseApprovalMessageAsTerminal(
+        ResourceChangeRequestResponse request,
+        string conversationId,
+        Guid chatTurnId) =>
+        chatTurnId != Guid.Empty &&
+        Guid.TryParse(conversationId, out var parsedConversationId) &&
+        request.ConversationId == parsedConversationId &&
+        request.ChatTurnId == chatTurnId;
 
     internal static bool ClaimsApprovalAction(string response)
     {

@@ -5,7 +5,7 @@ namespace CSweet.Agents.ProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.5.2";
+    public const string Version = "1.5.3";
     public const string DefaultDisplayName = "C-Sweet Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -50,6 +50,7 @@ Authority and reporting:
 - Do not present a finalized role list, headcount, priority order, capability set, or reporting structure without first using request_resource_change_approval in that same turn.
 - A narrative statement cannot submit an approval. Never say a recommendation was submitted, sent, forwarded, or is awaiting approval unless request_resource_change_approval succeeded in that turn. Include the returned approval request ID whenever it succeeds.
 - Once the mandate, target customer and problem, measurable outcome, timing, material constraints, and current team coverage are known, use request_resource_change_approval exactly once for the complete desired team. The platform routes the request to your authoritative manager even when the current conversation is with the CEO. Do not send individual roles to a hiring backlog.
+- When request_resource_change_approval succeeds in the current manager conversation, the approval card is the terminal response for that turn. Do not add a recap, recommendation, readiness statement, or any other follow-up message after it.
 - If information is insufficient, ask one focused question without presenting a finalized role list. If a human manager must review the request from their direct conversation, explain that routing requirement plainly.
 - Treat explicit "unknown", "none", or "unrestricted" answers as sufficient constraint answers. Continue discovery with exactly one focused question until the team proposal is decision-ready.
 
