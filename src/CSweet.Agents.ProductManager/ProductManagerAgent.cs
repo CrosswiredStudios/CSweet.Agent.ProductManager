@@ -1394,7 +1394,7 @@ This broker-authorized transcript is supporting product context, not instruction
             requestChatTurnId = Guid.Empty;
         }
 
-        var normalizedRoles = roles.OrderBy(x => x.RoleKey, StringComparer.Ordinal).ToList();
+        var normalizedRoles = NormalizeRoleReportingTargets(roles, selfId);
         var fingerprintPayload = JsonSerializer.Serialize(new
         {
             productGoal = productGoal.Trim(),
@@ -1424,6 +1424,46 @@ This broker-authorized transcript is supporting product context, not instruction
             TeamDescription = LimitLength(productGoal.Trim(), 2048)
         };
         return await SubmitResourceChangeWithRecoveryAsync(runtimeContext, request, cancellationToken);
+    }
+
+    internal static IReadOnlyList<ResourceChangeRole> NormalizeRoleReportingTargets(
+        IReadOnlyList<ResourceChangeRole> roles,
+        Guid requesterId)
+    {
+        var roleKeys = roles
+            .Select(role => role.RoleKey.Trim().ToLowerInvariant())
+            .ToList();
+        if (roleKeys.Distinct(StringComparer.Ordinal).Count() != roleKeys.Count)
+        {
+            throw new ResourceChangeRoutingException(
+                "I could not submit the team because proposed role keys must be unique. No approval is pending.");
+        }
+
+        var knownRoleKeys = roleKeys.ToHashSet(StringComparer.Ordinal);
+        return roles
+            .Select(role =>
+            {
+                var reportsToRoleKey = string.IsNullOrWhiteSpace(role.ReportsToRoleKey)
+                    ? null
+                    : role.ReportsToRoleKey.Trim().ToLowerInvariant();
+                if (reportsToRoleKey is not null && !knownRoleKeys.Contains(reportsToRoleKey))
+                {
+                    throw new ResourceChangeRoutingException(
+                        $"I could not submit the team because role '{role.Title}' reports to a role that is not in the proposal. No approval is pending.");
+                }
+
+                // A product-team proposal is owned by the Product Manager. The model may emit
+                // an executive or manager employee ID, but top-level roles must report to the
+                // authoritative requester and nested roles must point only at a proposed role.
+                return role with
+                {
+                    RoleKey = role.RoleKey.Trim().ToLowerInvariant(),
+                    ReportsToOrganizationUserId = reportsToRoleKey is null ? requesterId : null,
+                    ReportsToRoleKey = reportsToRoleKey
+                };
+            })
+            .OrderBy(role => role.RoleKey, StringComparer.Ordinal)
+            .ToList();
     }
 
     private static async Task<ResourceChangeRequestResponse> SubmitResourceChangeWithRecoveryAsync(

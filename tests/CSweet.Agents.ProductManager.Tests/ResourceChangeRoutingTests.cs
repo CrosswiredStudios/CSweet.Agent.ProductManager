@@ -136,6 +136,62 @@ public sealed class ResourceChangeRoutingTests
     }
 
     [Fact]
+    public async Task ExecutiveEmployeeReportingTarget_IsCanonicalizedToProductManager()
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true);
+        var role = fixture.Role(
+            "game-developer",
+            "Game Developer",
+            reportsToOrganizationUserId: fixture.ManagerId);
+
+        await fixture.SubmitAsync(roles: [role]);
+
+        var submittedRole = Assert.Single(fixture.Proposal!.Roles);
+        Assert.Equal(fixture.ProductManagerId, submittedRole.ReportsToOrganizationUserId);
+        Assert.Null(submittedRole.ReportsToRoleKey);
+    }
+
+    [Fact]
+    public async Task ProposedRoleReportingTarget_IsPreservedAndEmployeeTargetIsCleared()
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true);
+
+        await fixture.SubmitAsync(roles:
+        [
+            fixture.Role(
+                "Lead",
+                "Lead Game Developer",
+                reportsToOrganizationUserId: fixture.ManagerId),
+            fixture.Role(
+                "designer",
+                "Game Designer",
+                reportsToOrganizationUserId: fixture.ManagerId,
+                reportsToRoleKey: "LEAD")
+        ]);
+
+        var lead = Assert.Single(fixture.Proposal!.Roles, role => role.RoleKey == "lead");
+        var designer = Assert.Single(fixture.Proposal.Roles, role => role.RoleKey == "designer");
+        Assert.Equal(fixture.ProductManagerId, lead.ReportsToOrganizationUserId);
+        Assert.Null(lead.ReportsToRoleKey);
+        Assert.Null(designer.ReportsToOrganizationUserId);
+        Assert.Equal("lead", designer.ReportsToRoleKey);
+    }
+
+    [Fact]
+    public async Task UnknownProposedRoleReportingTarget_IsRejectedBeforeSubmission()
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true);
+
+        var exception = await Assert.ThrowsAsync<ResourceChangeRoutingException>(() => fixture.SubmitAsync(roles:
+        [
+            fixture.Role("designer", "Game Designer", reportsToRoleKey: "missing-lead")
+        ]));
+
+        Assert.Contains("not in the proposal", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, fixture.ProposalCallCount);
+    }
+
+    [Fact]
     public async Task ExecutiveTurn_WithAgentManager_RoutesToProtectedManagerConversation()
     {
         var fixture = new RoutingFixture(managerType: "Agent", sourceIsManager: false);
@@ -197,9 +253,9 @@ public sealed class ResourceChangeRoutingTests
         {
             var organizationId = Guid.NewGuid();
             var installationId = Guid.NewGuid();
-            var productManagerId = Guid.NewGuid();
-            var managerId = Guid.NewGuid();
-            var sourceSenderId = sourceIsManager ? managerId : Guid.NewGuid();
+            ProductManagerId = Guid.NewGuid();
+            ManagerId = Guid.NewGuid();
+            var sourceSenderId = sourceIsManager ? ManagerId : Guid.NewGuid();
             SourceConversationId = Guid.NewGuid();
             ManagerConversationId = sourceIsManager ? SourceConversationId : Guid.NewGuid();
             SourceTurnId = Guid.NewGuid();
@@ -250,21 +306,21 @@ public sealed class ResourceChangeRoutingTests
                         ProposalKeys.Add(request.IdempotencyKey);
                         if (ProposalCallCount <= ambiguousFailures)
                             throw new HttpRequestException("The response ended before it could be read.");
-                        return Task.FromResult(Response(request, organizationId, productManagerId, installationId, managerId));
+                        return Task.FromResult(Response(request, organizationId, ProductManagerId, installationId, ManagerId));
                     });
 
             _context = runtime.CreateContext(
                 organizationId.ToString("D"),
                 installationId.ToString("D"),
                 new AgentIdentity(
-                    productManagerId.ToString("D"),
+                    ProductManagerId.ToString("D"),
                     "Product Manager",
                     null,
                     "Product Manager",
                     null,
                     [],
                     null,
-                    managerId.ToString("D"),
+                    ManagerId.ToString("D"),
                     "Chief of Staff"));
             _operatingContext = new ProductOperatingContext(
                 null,
@@ -274,15 +330,15 @@ public sealed class ResourceChangeRoutingTests
                     "Active",
                     [
                         new OrganizationPerson(
-                            productManagerId,
+                            ProductManagerId,
                             "Product Manager",
                             "Agent",
                             null,
-                            managerId,
+                            ManagerId,
                             installationId,
                             true),
                         new OrganizationPerson(
-                            managerId,
+                            ManagerId,
                             "Chief of Staff",
                             managerType,
                             null,
@@ -312,6 +368,8 @@ public sealed class ResourceChangeRoutingTests
         public Guid SourceConversationId { get; }
         public Guid ManagerConversationId { get; }
         public Guid SourceTurnId { get; }
+        public Guid ProductManagerId { get; }
+        public Guid ManagerId { get; }
         public int ManagerChatCreateCount { get; private set; }
         public int ProposalCallCount { get; private set; }
         public List<string> ProposalKeys { get; } = [];
@@ -319,12 +377,14 @@ public sealed class ResourceChangeRoutingTests
 
         public async Task SubmitAsync(
             bool omitOptionalCollections = false,
-            string teamName = "Product")
+            string teamName = "Product",
+            IReadOnlyList<ResourceChangeRole>? roles = null)
         {
             _ = await ProductManagerAgent.RequestResourceChangeApprovalAsync(
                 "Validate and ship the first playable browser game",
                 "A compact cross-functional team covers implementation, design, and independent quality.",
                 1,
+                roles ??
                 [
                     new ResourceChangeRole(
                         "web3d",
@@ -347,6 +407,24 @@ public sealed class ResourceChangeRoutingTests
                 _context,
                 CancellationToken.None);
         }
+
+        public ResourceChangeRole Role(
+            string roleKey,
+            string title,
+            Guid? reportsToOrganizationUserId = null,
+            string? reportsToRoleKey = null) =>
+            new(
+                roleKey,
+                "Product",
+                title,
+                $"Own the {title} work.",
+                1,
+                1,
+                "Now",
+                ["product-delivery"],
+                false,
+                reportsToOrganizationUserId,
+                reportsToRoleKey);
 
         private static ResourceChangeRequestResponse Response(
             ResourceChangeProposalRequest request,
