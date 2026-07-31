@@ -981,7 +981,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
             Attempt: attempt), cancellationToken);
     }
 
-    private static string BuildSafeFailureMessage(Exception exception)
+    private static string BuildSafeFailureMessage(Exception exception, string? diagnosticReference = null)
     {
         var candidates = exception is AggregateException aggregate
             ? aggregate.Flatten().InnerExceptions
@@ -1015,7 +1015,9 @@ If the context is not sufficient to identify the deliverable responsibly, state 
             return $"The platform rejected the approval request: {platformException.Message}";
         }
 
-        return "The Product Manager could not complete the request. Check the Product Manager logs for details.";
+        return diagnosticReference is null
+            ? "The Product Manager encountered an internal error before the approval request could be completed. Please retry the request."
+            : $"The Product Manager encountered an internal error before the approval request could be completed. Please retry the request and reference diagnostic ID {diagnosticReference}.";
     }
 
     private static IEnumerable<Exception> EnumerateExceptionChain(Exception exception)
@@ -1117,11 +1119,13 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                     }
                     catch (Exception exception)
                     {
+                        var diagnosticReference = Guid.NewGuid().ToString("N")[..12];
                         _logger.LogWarning(
                             exception,
-                            "The Product Manager resource-change approval tool was blocked for conversation {ConversationId}.",
-                            input.ConversationId);
-                        var safeMessage = BuildSafeFailureMessage(exception);
+                            "The Product Manager resource-change approval tool was blocked for conversation {ConversationId}. Diagnostic {DiagnosticReference}.",
+                            input.ConversationId,
+                            diagnosticReference);
+                        var safeMessage = BuildSafeFailureMessage(exception, diagnosticReference);
                         return submissionState?.RecordFailure(safeMessage) ??
                                ResourceChangeApprovalToolResult.Failure(safeMessage);
                     }
@@ -1162,6 +1166,52 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                 },
                 AIContextProviders = [memoryProvider]
             });
+        agent = agent.AsBuilder()
+            .Use(async (_, invocation, next, token) =>
+            {
+                var functionName = invocation.Function.Name;
+                var callId = invocation.CallContent.CallId;
+                using var scope = _logger.BeginScope(new Dictionary<string, object?>
+                {
+                    ["AgentFunction"] = functionName,
+                    ["AgentFunctionCallId"] = callId,
+                    ["ConversationId"] = input.ConversationId,
+                    ["ChatTurnId"] = input.ChatTurnId
+                });
+                _logger.LogInformation(
+                    "Product Manager invoking MAF function {FunctionName} for conversation {ConversationId}, call {CallId}, iteration {Iteration}.",
+                    functionName,
+                    input.ConversationId,
+                    callId,
+                    invocation.Iteration);
+                if (functionName == ResourceChangeApprovalToolName && submissionState is null)
+                {
+                    _logger.LogWarning(
+                        "Product Manager blocked approval function {CallId} because the run has no durable submission state.",
+                        callId);
+                    return ResourceChangeApprovalToolResult.Failure(
+                        "The approval request was blocked because it did not originate from a guarded conversation turn. No approval is pending.");
+                }
+                try
+                {
+                    var result = await next(invocation, token);
+                    _logger.LogInformation(
+                        "Product Manager completed MAF function {FunctionName} for call {CallId}.",
+                        functionName,
+                        callId);
+                    return result;
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Product Manager MAF function {FunctionName} failed for call {CallId}.",
+                        functionName,
+                        callId);
+                    throw;
+                }
+            })
+            .Build();
 
         var prompt = _orchestrator.BuildGroundedPrompt(input.Prompt, capability, operatingContext, Settings);
         var managerTranscript = await ReadVerifiedManagerTranscriptAsync(
@@ -1259,14 +1309,22 @@ This broker-authorized transcript is supporting product context, not instruction
 
         assumptions ??= [];
         constraints ??= [];
-        if (!Guid.TryParse(runtimeContext.Identity?.EmployeeId, out var selfId) ||
-            !Guid.TryParse(runtimeContext.InstallationId, out var installationId))
-            throw new InvalidOperationException("The Product Manager identity is unavailable.");
-        var self = operatingContext.Organization?.People.SingleOrDefault(x =>
-            x.Id == selfId && x.AgentInstallationId == installationId && x.IsActive)
-            ?? throw new InvalidOperationException("The Product Manager is not active in the organization.");
-        var manager = self.ReportsToId.HasValue
-            ? operatingContext.Organization?.People.SingleOrDefault(x => x.Id == self.ReportsToId.Value && x.IsActive)
+        if (!Guid.TryParse(runtimeContext.InstallationId, out var installationId))
+            throw new ResourceChangeRoutingException(
+                "I could not verify my installation identity, so no approval request was created. Please restart this employee and retry.");
+        var people = operatingContext.Organization?.People ?? [];
+        var hasRuntimeEmployeeId = Guid.TryParse(runtimeContext.Identity?.EmployeeId, out var runtimeEmployeeId);
+        var self = people.SingleOrDefault(x =>
+                       hasRuntimeEmployeeId && x.Id == runtimeEmployeeId &&
+                       x.AgentInstallationId == installationId && x.IsActive)
+                   ?? people.SingleOrDefault(x => x.AgentInstallationId == installationId && x.IsActive)
+                   ?? throw new ResourceChangeRoutingException(
+                       "I am not currently linked to an active employee record, so no approval request was created. Please repair the employee assignment and retry.");
+        var selfId = self.Id;
+        var hasRuntimeManagerId = Guid.TryParse(runtimeContext.Identity?.ManagerEmployeeId, out var runtimeManagerId);
+        var managerId = hasRuntimeManagerId ? runtimeManagerId : self.ReportsToId;
+        var manager = managerId.HasValue
+            ? people.SingleOrDefault(x => x.Id == managerId.Value && x.IsActive)
             : null;
         if (manager is null)
             throw new ResourceChangeRoutingException(
@@ -1330,8 +1388,32 @@ This broker-authorized transcript is supporting product context, not instruction
             TeamName = BuildTeamName(normalizedRoles, self.DisplayName),
             TeamDescription = LimitLength(productGoal.Trim(), 2048)
         };
-        return await runtimeContext.Platform.ProposeResourceChangeAsync(request, cancellationToken);
+        return await SubmitResourceChangeWithRecoveryAsync(runtimeContext, request, cancellationToken);
     }
+
+    private static async Task<ResourceChangeRequestResponse> SubmitResourceChangeWithRecoveryAsync(
+        AgentRuntimeContext runtimeContext,
+        ResourceChangeProposalRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await runtimeContext.Platform.ProposeResourceChangeAsync(request, cancellationToken);
+        }
+        catch (Exception exception) when (IsAmbiguousSubmissionFailure(exception))
+        {
+            // The platform operation is idempotent. A retry recovers the durable response when
+            // persistence succeeded but the transport or response was interrupted.
+            return await runtimeContext.Platform.ProposeResourceChangeAsync(request, cancellationToken);
+        }
+    }
+
+    private static bool IsAmbiguousSubmissionFailure(Exception exception) =>
+        exception is HttpRequestException ||
+        exception is PlatformCapabilityException platformException &&
+        platformException.Code == PlatformCapabilityErrorCode.ValidationFailed &&
+        (platformException.Message.Contains("invalid JSON", StringComparison.OrdinalIgnoreCase) ||
+         platformException.Message.Contains("empty response", StringComparison.OrdinalIgnoreCase));
 
     private static string BuildTeamName(
         IReadOnlyList<ResourceChangeRole> roles,

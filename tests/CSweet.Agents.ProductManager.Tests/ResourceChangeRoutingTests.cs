@@ -136,6 +136,18 @@ public sealed class ResourceChangeRoutingTests
         Assert.Equal(firstKey, fixture.Proposal!.IdempotencyKey);
     }
 
+    [Fact]
+    public async Task AmbiguousTransportFailure_RetriesOnceWithTheSameIdempotencyKey()
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true, ambiguousFailures: 1);
+
+        await fixture.SubmitAsync();
+
+        Assert.Equal(2, fixture.ProposalCallCount);
+        Assert.NotNull(fixture.Proposal);
+        Assert.Single(fixture.ProposalKeys.Distinct(StringComparer.Ordinal));
+    }
+
     private sealed class RoutingFixture
     {
         private readonly AgentRuntimeContext _context;
@@ -145,7 +157,8 @@ public sealed class ResourceChangeRoutingTests
         public RoutingFixture(
             string managerType,
             bool sourceIsManager,
-            bool includeTranscriptTurnId = true)
+            bool includeTranscriptTurnId = true,
+            int ambiguousFailures = 0)
         {
             var organizationId = Guid.NewGuid();
             var installationId = Guid.NewGuid();
@@ -197,7 +210,11 @@ public sealed class ResourceChangeRoutingTests
                     ProductManagerProfile.ProposeResourceChangeCapability,
                     (request, _) =>
                     {
+                        ProposalCallCount++;
                         Proposal = request;
+                        ProposalKeys.Add(request.IdempotencyKey);
+                        if (ProposalCallCount <= ambiguousFailures)
+                            throw new HttpRequestException("The response ended before it could be read.");
                         return Task.FromResult(Response(request, organizationId, productManagerId, installationId, managerId));
                     });
 
@@ -261,6 +278,8 @@ public sealed class ResourceChangeRoutingTests
         public Guid ManagerConversationId { get; }
         public Guid SourceTurnId { get; }
         public int ManagerChatCreateCount { get; private set; }
+        public int ProposalCallCount { get; private set; }
+        public List<string> ProposalKeys { get; } = [];
         public ResourceChangeProposalRequest? Proposal { get; private set; }
 
         public async Task SubmitAsync(
