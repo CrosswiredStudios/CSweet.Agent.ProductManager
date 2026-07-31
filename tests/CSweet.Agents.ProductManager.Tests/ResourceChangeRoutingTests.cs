@@ -10,9 +10,9 @@ public sealed class ResourceChangeRoutingTests
         const string draft =
             "I submitted the Lean Technical Spike Team to your manager for approval.";
 
-        var guarded = ProductManagerAgent.EnsureAccurateApprovalStatus(draft, null);
+        var guarded = ProductManagerAgent.EnsureAccurateApprovalStatus(draft, toolResult: null);
 
-        Assert.Contains("did not create a durable approval request", guarded);
+        Assert.Contains("no durable approval action was attempted", guarded);
         Assert.Contains("No approval is pending", guarded);
         Assert.DoesNotContain("I submitted", guarded);
     }
@@ -45,7 +45,7 @@ public sealed class ResourceChangeRoutingTests
 
         var guarded = ProductManagerAgent.EnsureAccurateApprovalStatus(
             "I submitted the recommendation for approval.",
-            response);
+            ResourceChangeApprovalToolResult.Success(response));
 
         Assert.Contains(requestId.ToString("D"), guarded);
         Assert.Contains("Pending", guarded);

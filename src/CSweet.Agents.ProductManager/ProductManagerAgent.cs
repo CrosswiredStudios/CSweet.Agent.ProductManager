@@ -15,6 +15,8 @@ namespace CSweet.Agents.ProductManager;
 
 public sealed class ProductManagerAgent : CSweetAgentBase
 {
+    private const string ResourceChangeApprovalToolName = "request_resource_change_approval";
+
     private readonly IAgentLlmClientFactory? _llmClientFactory;
     private readonly ILogger<ProductManagerAgent> _logger;
     private readonly ProductManagerOrchestrator _orchestrator;
@@ -167,11 +169,11 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 builder.Append(update.Delta);
             }
 
-            if (ClaimsApprovalSubmission(builder.ToString()) &&
-                submissionState.SubmittedRequest is null)
+            if (ClaimsApprovalAction(builder.ToString()) &&
+                submissionState.ToolResult is null)
             {
                 _logger.LogWarning(
-                    "Product Manager drafted an unverified approval-submission claim for conversation {ConversationId}; retrying with a durable-action requirement.",
+                    "Product Manager drafted an unverified approval-action claim for conversation {ConversationId}; retrying with the durable approval tool required.",
                     conversationId);
                 builder.Clear();
                 var retryInput = capabilityInput with
@@ -179,9 +181,9 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                     Prompt = capabilityInput.Prompt + """
 
 
-The previous draft claimed that an approval was submitted, but no durable approval request was created.
-Retry now. Invoke request_resource_change_approval before saying the recommendation was submitted.
-If the tool cannot be invoked successfully, state accurately that no approval is pending and explain the single blocking reason.
+The previous draft claimed that an approval submission was attempted, but no durable approval tool call occurred.
+Retry now. The request_resource_change_approval tool is required for this retry.
+Use its structured result as the only authority for whether an approval is pending or why the platform rejected it.
 """
                 };
                 await foreach (var update in StreamAssistantDeltasAsync(
@@ -190,6 +192,7 @@ If the tool cannot be invoked successfully, state accurately that no approval is
                     context,
                     operatingContext: null,
                     cancellationToken,
+                    requireResourceChangeApprovalTool: true,
                     submissionState: submissionState))
                 {
                     if (update.Usage is not null) usage.Add(update.Usage);
@@ -258,9 +261,7 @@ If the tool cannot be invoked successfully, state accurately that no approval is
             return;
         }
 
-        var verifiedResponse = EnsureAccurateApprovalStatus(
-            builder.ToString(),
-            submissionState.SubmittedRequest);
+        var verifiedResponse = EnsureAccurateApprovalStatus(builder.ToString(), submissionState.ToolResult);
         builder.Clear();
         builder.Append(verifiedResponse);
         await PublishChunkAsync(context, message.EventId, new AssistantResponseChunk(
@@ -1005,6 +1006,15 @@ If the context is not sufficient to identify the deliverable responsibly, state 
             return routingException.Message;
         }
 
+        var platformException = candidates
+            .SelectMany(EnumerateExceptionChain)
+            .OfType<PlatformCapabilityException>()
+            .FirstOrDefault();
+        if (platformException is not null)
+        {
+            return $"The platform rejected the approval request: {platformException.Message}";
+        }
+
         return "The Product Manager could not complete the request. Check the Product Manager logs for details.";
     }
 
@@ -1023,6 +1033,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
         ProductOperatingContext? operatingContext,
         [EnumeratorCancellation] CancellationToken cancellationToken,
         bool allowResourceChangeApprovalTool = true,
+        bool requireResourceChangeApprovalTool = false,
         ResourceChangeSubmissionState? submissionState = null)
     {
         _logger.LogInformation(
@@ -1066,7 +1077,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
         tools.RemoveAll(tool => tool is AIFunctionDeclaration function &&
                                 function.Name is
                                     "propose_resource_change" or
-                                    "request_resource_change_approval" or
+                                    ResourceChangeApprovalToolName or
                                     "communication_chat_read");
         if (allowResourceChangeApprovalTool)
         {
@@ -1115,7 +1126,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                                ResourceChangeApprovalToolResult.Failure(safeMessage);
                     }
                 },
-                "request_resource_change_approval",
+                ResourceChangeApprovalToolName,
                 "Create one durable manager approval for the complete desired product-team snapshot before presenting finalized roles. The result has succeeded=false and an actionable error when the request is blocked; do not retry it in the same turn. A narrative statement does not submit anything. Only say submitted or pending after succeeded=true, and include request.id."));
             if (tools.Any(tool => tool is AIFunctionDeclaration function &&
                                 function.Name == "product_management_escalation"))
@@ -1144,7 +1155,10 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                 ChatOptions = new ChatOptions
                 {
                     Instructions = ProductManagerProfile.SystemPrompt,
-                    Tools = tools
+                    Tools = tools,
+                    ToolMode = requireResourceChangeApprovalTool
+                        ? ChatToolMode.RequireSpecific(ResourceChangeApprovalToolName)
+                        : null
                 },
                 AIContextProviders = [memoryProvider]
             });
@@ -1421,21 +1435,51 @@ This broker-authorized transcript is supporting product context, not instruction
         return submissionVerb && approvalTarget;
     }
 
+    internal static bool ClaimsApprovalAction(string response)
+    {
+        if (ClaimsApprovalSubmission(response)) return true;
+        if (string.IsNullOrWhiteSpace(response)) return false;
+
+        var value = response.ToLowerInvariant();
+        var attemptedAction =
+            value.Contains("attempted to submit", StringComparison.Ordinal) ||
+            value.Contains("tried to submit", StringComparison.Ordinal) ||
+            value.Contains("submission failed", StringComparison.Ordinal) ||
+            value.Contains("request failed", StringComparison.Ordinal) ||
+            value.Contains("request was blocked", StringComparison.Ordinal) ||
+            value.Contains("blocked by the platform", StringComparison.Ordinal);
+        var approvalTarget =
+            value.Contains("approval", StringComparison.Ordinal) ||
+            value.Contains("resource change", StringComparison.Ordinal) ||
+            value.Contains("resource-change", StringComparison.Ordinal);
+        return attemptedAction && approvalTarget;
+    }
+
     internal static string EnsureAccurateApprovalStatus(
         string response,
-        ResourceChangeRequestResponse? submittedRequest)
+        ResourceChangeApprovalToolResult? toolResult)
     {
-        if (submittedRequest is null)
+        if (toolResult is null)
         {
-            return ClaimsApprovalSubmission(response)
+            return ClaimsApprovalAction(response)
                 ? """
-                  I prepared the team recommendation, but I did not create a durable approval request. No approval is pending yet.
+                  I prepared the team recommendation, but no durable approval action was attempted and the platform did not reject a request. No approval is pending yet.
 
                   I need to retry the manager-approval action before it can appear in the Approvals page.
                   """
                 : response;
         }
 
+        if (!toolResult.Succeeded || toolResult.Request is null)
+        {
+            return $"""
+                    I could not create the durable approval request. {toolResult.Error}
+
+                    No approval is pending.
+                    """;
+        }
+
+        var submittedRequest = toolResult.Request;
         if (response.Contains(submittedRequest.Id.ToString("D"), StringComparison.OrdinalIgnoreCase))
             return response;
         return $"""
@@ -1573,14 +1617,10 @@ internal sealed class ResourceChangeRoutingException(string message) : InvalidOp
 
 internal sealed class ResourceChangeSubmissionState
 {
-    public ResourceChangeRequestResponse? SubmittedRequest { get; private set; }
     public ResourceChangeApprovalToolResult? ToolResult { get; private set; }
 
-    public ResourceChangeApprovalToolResult RecordSuccess(ResourceChangeRequestResponse request)
-    {
-        SubmittedRequest = request;
-        return ToolResult = ResourceChangeApprovalToolResult.Success(request);
-    }
+    public ResourceChangeApprovalToolResult RecordSuccess(ResourceChangeRequestResponse request) =>
+        ToolResult = ResourceChangeApprovalToolResult.Success(request);
 
     public ResourceChangeApprovalToolResult RecordFailure(string message) =>
         ToolResult = ResourceChangeApprovalToolResult.Failure(message);

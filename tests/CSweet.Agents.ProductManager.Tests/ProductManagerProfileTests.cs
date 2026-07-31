@@ -34,6 +34,8 @@ public sealed class ProductManagerProfileTests
         Assert.DoesNotContain(PlatformCapabilities.HiringWorkflowStage, requires);
         Assert.Contains(ProductManagerProfile.CreateCommunicationCapability, requires);
         Assert.Contains(ProductManagerProfile.SendCommunicationMessageCapability, requires);
+        Assert.Contains(ProductManagerProfile.ProposeResourceChangeCapability, requires);
+        Assert.Contains(PlatformCapabilities.ResourceChangeRead, requires);
         Assert.Contains(AgentLifecycleCapabilities.CompleteOnboarding, requires);
         Assert.Contains(MemoryCapabilities.BusinessRead, requires);
     }
@@ -608,6 +610,68 @@ public sealed class ProductManagerProfileTests
         Assert.All(plan.TeamStructure, role => Assert.Equal(ProductManagerProfile.DefaultDisplayName, role.ReportsTo));
         Assert.NotEmpty(plan.HiringSequence);
         Assert.NotEmpty(plan.Assumptions);
+    }
+
+    [Theory]
+    [InlineData(
+        "I attempted to submit the team for approval, but the request was blocked by the platform.",
+        true)]
+    [InlineData(
+        "I submitted the team for approval.",
+        true)]
+    [InlineData(
+        "I cannot submit a team until the product goal is defined.",
+        false)]
+    public void ApprovalActionDetection_RequiresEvidenceForAttemptAndSuccessClaims(
+        string response,
+        bool expected)
+    {
+        Assert.Equal(expected, ProductManagerAgent.ClaimsApprovalAction(response));
+    }
+
+    [Fact]
+    public void ApprovalStatus_RemovesInventedPlatformRejectionWhenNoToolRan()
+    {
+        var response = ProductManagerAgent.EnsureAccurateApprovalStatus(
+            "I attempted to submit the team for approval, but the request was blocked by the platform.",
+            toolResult: null);
+
+        Assert.Contains("no durable approval action was attempted", response, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No approval is pending", response, StringComparison.Ordinal);
+        Assert.DoesNotContain("blocked by the platform", response, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ApprovalStatus_UsesTheActualPlatformFailureFromTheTool()
+    {
+        var response = ProductManagerAgent.EnsureAccurateApprovalStatus(
+            "The request failed.",
+            ResourceChangeApprovalToolResult.Failure(
+                "The platform rejected the approval request: The proposal must originate from a current manager turn."));
+
+        Assert.Contains(
+            "The proposal must originate from a current manager turn.",
+            response,
+            StringComparison.Ordinal);
+        Assert.Contains("No approval is pending", response, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ApprovalStatus_AppendsTheDurableRequestIdAfterSuccess()
+    {
+        var request = ResourceChange(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Deliver the MVP",
+            "Pending");
+
+        var response = ProductManagerAgent.EnsureAccurateApprovalStatus(
+            "I submitted the complete team.",
+            ResourceChangeApprovalToolResult.Success(request));
+
+        Assert.Contains(request.Id.ToString("D"), response, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Pending", response, StringComparison.Ordinal);
     }
 
     [Fact]
