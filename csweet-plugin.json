@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
-  "version": "1.5.4",
+  "version": "1.6.0",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -544,7 +544,8 @@
       "com.csweet.agent.onboarded.v1",
       "com.csweet.user.message.received.v1",
       "com.csweet.management.review.due.v1",
-      "com.csweet.management.resource-change.decided.v1"
+      "com.csweet.management.resource-change.decided.v1",
+      "com.csweet.hiring-recommendation.fulfilled.v1"
     ]
   },
   "configuration": [

@@ -71,7 +71,8 @@ public sealed class ProductManagerProfileTests
                 ProductManagerProfile.OnboardedEvent,
                 ProductManagerProfile.UserMessageReceivedEvent,
                 ManagementEvents.ReviewDue,
-                ManagementEvents.ResourceChangeDecided
+                ManagementEvents.ResourceChangeDecided,
+                ProductManagerProfile.RecommendationFulfilledEvent
             ],
             root.GetProperty("events").GetProperty("subscribes").EnumerateArray()
                 .Select(item => item.GetString()!).ToArray());
@@ -95,7 +96,7 @@ public sealed class ProductManagerProfileTests
             "src",
             "CSweet.Agents.ProductManager",
             "CSweet.Agents.ProductManager.csproj"));
-        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.4.0", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.5.0", project, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
@@ -624,6 +625,71 @@ public sealed class ProductManagerProfileTests
     }
 
     [Fact]
+    public async Task RecommendationFulfilled_ReassessesOnlyItsOwnApprovedPlan()
+    {
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var response = ResourceChange(
+            requestId,
+            organizationId,
+            Guid.NewGuid(),
+            "Deliver the MVP",
+            "Approved");
+        SendCommunicationMessageRequest? messageRequest = null;
+        var messageRequests = new List<SendCommunicationMessageRequest>();
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
+                PlatformCapabilities.ResourceChangeRead,
+                (request, _) => Task.FromResult(new ResourceChangeReadResponse(
+                    request.RequestId == requestId ? [response] : [])))
+            .RegisterCapability<TeamRosterRequest, TeamRosterResponse>(
+                ProductManagerProfile.TeamRosterCapability,
+                (_, _) => Task.FromResult(new TeamRosterResponse(new AgentTeamContext(
+                    Guid.NewGuid().ToString("D"),
+                    "product",
+                    "Product Team",
+                    1,
+                    response.RequesterOrganizationUserId.ToString("D"),
+                    "Product Manager",
+                    [],
+                    [new TeamRoleCoverage("Product Engineer", 1)],
+                    1,
+                    false))))
+            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+                ProductManagerProfile.SendCommunicationMessageCapability,
+                (request, _) =>
+                {
+                    messageRequest = request;
+                    messageRequests.Add(request);
+                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                });
+        var context = runtime.CreateContext(
+            organizationId.ToString("D"),
+            response.RequesterInstallationId.ToString("D"));
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+
+        await agent.HandleHiringRecommendationFulfilledAsync(
+            RecommendationFulfilled(organizationId, Guid.NewGuid()),
+            context,
+            CancellationToken.None);
+        Assert.Null(messageRequest);
+
+        var ownEvent = RecommendationFulfilled(organizationId, requestId);
+        await agent.HandleHiringRecommendationFulfilledAsync(ownEvent, context, CancellationToken.None);
+        await agent.HandleHiringRecommendationFulfilledAsync(ownEvent, context, CancellationToken.None);
+
+        Assert.NotNull(messageRequest);
+        Assert.Equal(response.ConversationId, messageRequest.ChatId);
+        Assert.Equal($"hiring-recommendation-fulfilled:{ownEvent.EventId:N}:product-manager", messageRequest.IdempotencyKey);
+        Assert.Contains("Product Engineer", messageRequest.Content, StringComparison.Ordinal);
+        Assert.Contains("covers every planned role", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, messageRequests.Count);
+        Assert.Single(messageRequests.Select(request => request.IdempotencyKey).Distinct(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public void ProductPlan_HasPreferredCourse_TwoAlternatives_AndHiringOrder()
     {
         var brief = new ProductRoleBriefResponse(
@@ -817,6 +883,29 @@ public sealed class ProductManagerProfileTests
             null,
             DateTimeOffset.UtcNow,
             DateTimeOffset.UtcNow);
+    }
+
+    private static AgentEventEnvelope RecommendationFulfilled(Guid organizationId, Guid sourceRequestId)
+    {
+        var occurredAt = DateTimeOffset.UtcNow;
+        return new AgentEventEnvelope(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            HiringEvents.RecommendationFulfilled,
+            JsonSerializer.SerializeToElement(new HiringRecommendationFulfilledEvent(
+                organizationId,
+                Guid.NewGuid(),
+                sourceRequestId,
+                Guid.NewGuid(),
+                "product-engineer",
+                "Product Engineer",
+                Guid.NewGuid(),
+                null,
+                1,
+                1,
+                [Guid.NewGuid()],
+                occurredAt)),
+            occurredAt);
     }
 
     private sealed class TestLlmClientFactory(IChatClient chatClient) : IAgentLlmClientFactory

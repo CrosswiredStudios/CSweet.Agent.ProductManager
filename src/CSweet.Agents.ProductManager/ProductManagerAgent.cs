@@ -95,6 +95,12 @@ public sealed class ProductManagerAgent : CSweetAgentBase
             return;
         }
 
+        if (string.Equals(message.EventType, ProductManagerProfile.RecommendationFulfilledEvent, StringComparison.Ordinal))
+        {
+            await HandleHiringRecommendationFulfilledAsync(message, context, cancellationToken);
+            return;
+        }
+
         if (!string.Equals(message.EventType, ProductManagerProfile.UserMessageReceivedEvent, StringComparison.Ordinal))
         {
             return;
@@ -448,6 +454,69 @@ Use its structured result as the only authority for whether an approval is pendi
                 $"resource-change-decision-ack:{request.Id:N}:{request.Status}"),
             cancellationToken);
     }
+
+    internal async Task HandleHiringRecommendationFulfilledAsync(
+        AgentEventEnvelope message,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        var fulfilled = DeserializePayload<HiringRecommendationFulfilledEvent>(message.Payload);
+        if (fulfilled is null ||
+            fulfilled.OrganizationId == Guid.Empty ||
+            fulfilled.RecommendationId == Guid.Empty ||
+            !fulfilled.SourceResourceChangeRequestId.HasValue ||
+            fulfilled.FulfilledHeadcount < fulfilled.RequestedHeadcount ||
+            !string.Equals(context.BusinessId, fulfilled.OrganizationId.ToString("D"), StringComparison.OrdinalIgnoreCase) ||
+            !Guid.TryParse(context.InstallationId, out var installationId))
+        {
+            _logger.LogWarning(
+                "Ignored unrelated or malformed hiring recommendation fulfillment event {EventId}.",
+                message.EventId);
+            return;
+        }
+
+        var result = await context.Platform.ReadResourceChangesAsync(
+            new ResourceChangeReadRequest(fulfilled.SourceResourceChangeRequestId.Value),
+            cancellationToken);
+        var request = result.Requests.SingleOrDefault(x =>
+            x.Id == fulfilled.SourceResourceChangeRequestId.Value &&
+            x.RequesterInstallationId == installationId &&
+            x.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase));
+        if (request is null)
+            return;
+
+        var roster = await context.Platform.ReadTeamRosterAsync(token: cancellationToken);
+        var coverage = (roster.Team?.RoleCoverage ?? [])
+            .GroupBy(x => NormalizeRoleIdentity(x.Role), StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Sum(item => item.Count), StringComparer.Ordinal);
+        var gaps = request.Roles
+            .Select(role => new
+            {
+                Role = role,
+                Remaining = Math.Max(0, role.Headcount - coverage.GetValueOrDefault(NormalizeRoleIdentity(role.Title)))
+            })
+            .Where(x => x.Remaining > 0)
+            .OrderBy(x => x.Role.Priority)
+            .ThenBy(x => x.Role.Title, StringComparer.Ordinal)
+            .ToList();
+        var assessment = roster.Team is null
+            ? "The current team roster is unavailable, so remaining approved gaps could not be reassessed."
+            : gaps.Count == 0
+                ? "The approved team roster now covers every planned role."
+                : "Remaining approved staffing gaps: " + string.Join(", ", gaps.Select(x => $"{x.Role.Title} ({x.Remaining})")) + ".";
+        var content = $"Hiring update for **{request.ProductGoal}**: **{fulfilled.RoleTitle}** is fulfilled " +
+                      $"({fulfilled.FulfilledHeadcount}/{fulfilled.RequestedHeadcount}). {assessment}";
+        _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            ProductManagerProfile.SendCommunicationMessageCapability,
+            new SendCommunicationMessageRequest(
+                request.ConversationId,
+                content,
+                $"hiring-recommendation-fulfilled:{message.EventId:N}:product-manager"),
+            cancellationToken);
+    }
+
+    private static string NormalizeRoleIdentity(string value) =>
+        new(value.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     private static string FormatFeedback(string? comment) =>
         string.IsNullOrWhiteSpace(comment) ? string.Empty : $": {comment.Trim()}";

@@ -2,10 +2,10 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.5.4` and manifest protocol `2.0`.
+catalog was last verified against package version `1.6.0` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
-`CSweet.Agent.SDK` 2.4.0; manifest-audit tests reject names missing from that catalog.
+`CSweet.Agent.SDK` 2.5.0; manifest-audit tests reject names missing from that catalog.
 
 ## How to read this catalog
 
