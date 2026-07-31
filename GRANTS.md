@@ -2,7 +2,7 @@
 
 This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.4.1` and manifest protocol `2.0`.
+catalog was last verified against package version `1.5.0` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
 `CSweet.Agent.SDK` 2.2.0; manifest-audit tests reject names missing from that catalog.
@@ -78,6 +78,17 @@ must review it from their own direct conversation.
 
 These capabilities supplement direct manager messaging only when the current manager is the Chief
 of Staff. Calls target that manager's exact installation and validate the reporting relationship.
+
+### Software Architect coordination
+
+| Grant | Scope | Provider | Feature |
+|---|---|---|---|
+| `software-architecture.design.v1` | organization | Software Architect | Produce a typed, read-only system design and incremental delivery plan from approved product requirements. |
+| `software-architecture.publish-plan.v1` | organization | Software Architect | Publish the explicitly approved architecture plan as planned sprints and developer-ready tickets. |
+
+The Product Manager retains product scope, priority, acceptance criteria, and the explicit publish
+decision. Direct agent conversation carries clarification and feedback; only the separate publish
+capability authorizes board mutations.
 
 ## Capabilities provided by the Product Manager
 

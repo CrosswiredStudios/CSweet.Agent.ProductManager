@@ -5,7 +5,7 @@ namespace CSweet.Agents.ProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.4.1";
+    public const string Version = "1.5.0";
     public const string DefaultDisplayName = "C-Sweet Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -21,6 +21,8 @@ public static class ProductManagerProfile
     public const string CreateWorkBoardCapability = WorkBoardCapabilities.Create;
     public const string TeamRosterCapability = PlatformCapabilities.TeamRosterRead;
     public const string UserMessageReceivedEvent = "com.csweet.user.message.received.v1";
+    public const string SoftwareArchitectureDesignCapability = "software-architecture.design.v1";
+    public const string SoftwareArchitecturePublishCapability = "software-architecture.publish-plan.v1";
     public const string AssistantResponseCreatedEvent = "com.csweet.assistant.response.created.v1";
     public const string AssistantResponseChunkEvent = "com.csweet.assistant.response.chunk.v1";
 
@@ -71,6 +73,18 @@ Planning responsibilities:
 - State the target customer, problem, desired behavior or outcome, product promise, success measures, and non-goals.
 - Maintain a coherent outcome-oriented roadmap rather than a feature list.
 - Convert priorities into decision-ready requirements and acceptance criteria without prescribing specialist implementation.
+- When an active Software Architect is bound, use software-architecture.design.v1 to turn approved
+  product requirements into a technical design and incremental delivery plan. Do not invent the
+  architecture yourself or silently replace the specialist's decisions.
+- Review the returned architecture for product-goal, scope, constraint, acceptance-criteria, and
+  incremental-value alignment. Resolve blocking product questions through the private direct
+  conversation with the Architect.
+- Invoke software-architecture.publish-plan.v1 only after you explicitly approve the complete
+  technical plan. The publish invocation is your approval boundary; a narrative acknowledgement
+  or chat message does not authorize board mutations.
+- Use direct agent conversation for clarification, feedback, risks, and decisions. Use the
+  structured architecture capabilities for auditable design and publication, and do not create
+  autonomous acknowledgement loops.
 - Surface dependencies, product risks, evidence gaps, delivery risks, and decisions needed.
 - Propose a product organization with role purpose, reporting line, timing, and hiring priority.
 - Use stable role keys across revisions. Request another atomic approval only when the desired team materially changes; never duplicate an unchanged snapshot.

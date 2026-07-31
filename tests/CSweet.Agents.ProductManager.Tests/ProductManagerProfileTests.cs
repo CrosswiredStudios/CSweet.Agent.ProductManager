@@ -20,8 +20,14 @@ public sealed class ProductManagerProfileTests
             .Select(x => x.GetProperty("name").GetString()).ToHashSet();
         var requires = root.GetProperty("requires").EnumerateArray()
             .Select(x => x.GetProperty("name").GetString()).ToHashSet();
-        Assert.All(provides.Concat(requires), capability =>
-            Assert.Contains(capability!, CapabilityCatalog.All));
+        var providerCapabilities = new HashSet<string>(StringComparer.Ordinal)
+        {
+            ProductManagerProfile.SoftwareArchitectureDesignCapability,
+            ProductManagerProfile.SoftwareArchitecturePublishCapability
+        };
+        Assert.All(provides.Concat(requires).Where(capability =>
+                !providerCapabilities.Contains(capability!)),
+            capability => Assert.Contains(capability!, CapabilityCatalog.All));
         Assert.Contains(ProductManagementCapabilities.Plan, provides);
         Assert.Contains(ProductManagementCapabilities.ContextUpdate, provides);
         Assert.Contains(ProductManagementCapabilities.RoleBrief, requires);
@@ -29,6 +35,8 @@ public sealed class ProductManagerProfileTests
         Assert.Contains(ProductManagementCapabilities.Escalation, requires);
         Assert.Contains(WorkBoardCapabilities.Create, requires);
         Assert.Contains(ProductManagerProfile.TeamRosterCapability, requires);
+        Assert.Contains(ProductManagerProfile.SoftwareArchitectureDesignCapability, requires);
+        Assert.Contains(ProductManagerProfile.SoftwareArchitecturePublishCapability, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringRecommendationList, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringRecommendationUpsert, requires);
         Assert.DoesNotContain(PlatformCapabilities.HiringWorkflowStage, requires);
@@ -110,6 +118,36 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("primary startup goal", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("kanban board", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("resubmit", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            ProductManagerProfile.SoftwareArchitectureDesignCapability,
+            ProductManagerProfile.SystemPrompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ProductManagerProfile.SoftwareArchitecturePublishCapability,
+            ProductManagerProfile.SystemPrompt,
+            StringComparison.Ordinal);
+        Assert.Contains("direct agent conversation", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("approval boundary", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SoftwareArchitectProviderCapabilitiesAreVisibleAsGovernedModelTools()
+    {
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<object, object>(
+                ProductManagerProfile.SoftwareArchitectureDesignCapability,
+                (_, _) => Task.FromResult<object>(new { }),
+                modelVisible: true)
+            .RegisterCapability<object, object>(
+                ProductManagerProfile.SoftwareArchitecturePublishCapability,
+                (_, _) => Task.FromResult<object>(new { }),
+                modelVisible: true);
+
+        var tools = await runtime.CreateContext().GetModelToolsAsync();
+        var names = tools.OfType<AIFunctionDeclaration>().Select(x => x.Name).ToArray();
+
+        Assert.Contains("software_architecture_design_v1", names);
+        Assert.Contains("software_architecture_publish_plan_v1", names);
     }
 
     [Fact]

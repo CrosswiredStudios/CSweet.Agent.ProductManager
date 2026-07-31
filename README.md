@@ -1,7 +1,7 @@
 # C-Sweet Product Manager
 
 First-party Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 2.2.0 and manifest protocol v2.
-The agent package version is `1.4.1`.
+The agent package version is `1.5.0`.
 
 It owns product outcomes, customer discovery, product strategy, prioritization, roadmaps, requirements, success measures, delivery alignment, and product-team design. It does not choose technical architecture, write production code, make legal conclusions, source candidates, hire workers, or spend money.
 
@@ -28,6 +28,13 @@ Chat chunks are durable progress. Configuration and final responses are durable 
 platform calls and model tools always reflect the current grant revision.
 
 Chief of Staff coordination uses install-time, same-organization capability bindings. Payload identities remain untrusted and neither agent can select a target installation. Provider credentials and runtime transport details never enter agent code.
+
+Software Architect coordination uses the same governed provider-binding model. Once product goals,
+requirements, acceptance criteria, constraints, and the approved team board are ready, the Product
+Manager requests a typed architecture draft, reviews it for product alignment, resolves blocking
+questions through the private direct agent conversation, and explicitly invokes the separate
+publication capability only after approval. The Architect owns technical direction; the Product
+Manager retains product scope and priority.
 
 When an executive finalizes a product-team recommendation outside the Product Manager's reporting
 conversation, the runtime resolves the current manager and routes the atomic resource-change

@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Product Manager",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -535,7 +535,9 @@
     { "name": "work.board.create", "scope": "organization", "purpose": "Create one product-team kanban board after manager approval" },
     { "name": "management.product-role-brief.v1", "scope": "organization", "purpose": "Request an authoritative role brief from the active Chief of Staff" },
     { "name": "management.product-plan.review.v1", "scope": "organization", "purpose": "Submit the initial product and product-team recommendation to the Chief of Staff" },
-    { "name": "management.product-escalation.v1", "scope": "organization", "purpose": "Route executive information gaps and decisions through the Chief of Staff" }
+    { "name": "management.product-escalation.v1", "scope": "organization", "purpose": "Route executive information gaps and decisions through the Chief of Staff" },
+    { "name": "software-architecture.design.v1", "scope": "organization", "purpose": "Request a typed read-only system design and incremental implementation plan from the bound Software Architect" },
+    { "name": "software-architecture.publish-plan.v1", "scope": "organization", "purpose": "Publish the complete Product Manager-approved architecture plan as planned sprints and developer-ready tickets" }
   ],
   "events": {
     "subscribes": [
