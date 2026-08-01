@@ -191,6 +191,24 @@ public sealed class ResourceChangeRoutingTests
         Assert.Equal(0, fixture.ProposalCallCount);
     }
 
+    [Theory]
+    [InlineData("Product Manager")]
+    [InlineData("product-manager")]
+    [InlineData("self")]
+    public async Task RequesterRoleReportingTarget_IsCanonicalizedToProductManager(string requesterRoleKey)
+    {
+        var fixture = new RoutingFixture(managerType: "Human", sourceIsManager: true);
+
+        await fixture.SubmitAsync(roles:
+        [
+            fixture.Role("game-developer", "Game Developer", reportsToRoleKey: requesterRoleKey)
+        ]);
+
+        var submittedRole = Assert.Single(fixture.Proposal!.Roles);
+        Assert.Equal(fixture.ProductManagerId, submittedRole.ReportsToOrganizationUserId);
+        Assert.Null(submittedRole.ReportsToRoleKey);
+    }
+
     [Fact]
     public async Task ExecutiveTurn_WithAgentManager_RoutesToProtectedManagerConversation()
     {

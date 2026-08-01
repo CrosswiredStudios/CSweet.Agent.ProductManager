@@ -1235,7 +1235,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                     }
                 },
                 ResourceChangeApprovalToolName,
-                "Create one durable manager approval for the complete desired product-team snapshot before presenting finalized roles. The result has succeeded=false and an actionable error when the request is blocked; do not retry it in the same turn. A narrative statement does not submit anything. Only say submitted or pending after succeeded=true, and include request.id."));
+                "Create one durable manager approval for the complete desired product-team snapshot before presenting finalized roles. For a role that reports directly to the Product Manager, omit reportsToRoleKey; use reportsToRoleKey only for another role included in this same proposal. The result has succeeded=false and an actionable error when the request is blocked; do not retry it in the same turn. A narrative statement does not submit anything. Only say submitted or pending after succeeded=true, and include request.id."));
             if (tools.Any(tool => tool is AIFunctionDeclaration function &&
                                 function.Name == "product_management_escalation"))
             {
@@ -1463,7 +1463,7 @@ This broker-authorized transcript is supporting product context, not instruction
             requestChatTurnId = Guid.Empty;
         }
 
-        var normalizedRoles = NormalizeRoleReportingTargets(roles, selfId);
+        var normalizedRoles = NormalizeRoleReportingTargets(roles, selfId, self.DisplayName);
         var fingerprintPayload = JsonSerializer.Serialize(new
         {
             productGoal = productGoal.Trim(),
@@ -1497,7 +1497,8 @@ This broker-authorized transcript is supporting product context, not instruction
 
     internal static IReadOnlyList<ResourceChangeRole> NormalizeRoleReportingTargets(
         IReadOnlyList<ResourceChangeRole> roles,
-        Guid requesterId)
+        Guid requesterId,
+        string requesterDisplayName)
     {
         var roleKeys = roles
             .Select(role => role.RoleKey.Trim().ToLowerInvariant())
@@ -1517,8 +1518,15 @@ This broker-authorized transcript is supporting product context, not instruction
                     : role.ReportsToRoleKey.Trim().ToLowerInvariant();
                 if (reportsToRoleKey is not null && !knownRoleKeys.Contains(reportsToRoleKey))
                 {
-                    throw new ResourceChangeRoutingException(
-                        $"I could not submit the team because role '{role.Title}' reports to a role that is not in the proposal. No approval is pending.");
+                    if (IsRequesterRoleReference(reportsToRoleKey, requesterDisplayName))
+                    {
+                        reportsToRoleKey = null;
+                    }
+                    else
+                    {
+                        throw new ResourceChangeRoutingException(
+                            $"I could not submit the team because role '{role.Title}' reports to a role that is not in the proposal. No approval is pending.");
+                    }
                 }
 
                 // A product-team proposal is owned by the Product Manager. The model may emit
@@ -1533,6 +1541,35 @@ This broker-authorized transcript is supporting product context, not instruction
             })
             .OrderBy(role => role.RoleKey, StringComparer.Ordinal)
             .ToList();
+    }
+
+    private static bool IsRequesterRoleReference(string roleKey, string requesterDisplayName)
+    {
+        var normalizedKey = NormalizeRoleAlias(roleKey);
+        var requesterAlias = NormalizeRoleAlias(requesterDisplayName);
+        return normalizedKey == requesterAlias ||
+               normalizedKey is "product-manager" or "requester" or "self";
+    }
+
+    private static string NormalizeRoleAlias(string value)
+    {
+        var builder = new StringBuilder(value.Length);
+        var separatorPending = false;
+        foreach (var character in value.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character))
+            {
+                if (separatorPending && builder.Length > 0)
+                    builder.Append('-');
+                builder.Append(character);
+                separatorPending = false;
+            }
+            else
+            {
+                separatorPending = true;
+            }
+        }
+        return builder.ToString();
     }
 
     private static async Task<ResourceChangeRequestResponse> SubmitResourceChangeWithRecoveryAsync(
