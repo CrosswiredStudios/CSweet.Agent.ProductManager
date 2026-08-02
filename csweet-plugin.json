@@ -598,5 +598,15 @@
       "title": "Software Product Manager settings",
       "capability": "agent.configuration.update.v1"
     }
-  ]
+  ],
+  "catalog": {
+    "summary": "Owns software product outcomes, customer discovery, strategy, prioritization, roadmaps, requirements, and product-team design.",
+    "category": "Product",
+    "role": { "key": "product-manager", "name": "Product Manager" },
+    "license": { "spdxId": "LicenseRef-Proprietary" },
+    "iconUrls": [],
+    "roleAliases": ["Software Product Manager", "Software PM", "Product Lead", "Head of Product"],
+    "keywords": ["product strategy", "customer discovery", "roadmap", "prioritization"],
+    "documentationUrl": "README.md"
+  }
 }
