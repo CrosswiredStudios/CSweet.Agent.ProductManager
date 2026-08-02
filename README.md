@@ -1,6 +1,6 @@
-# C-Sweet Product Manager
+# C-Sweet Software Product Manager
 
-First-party Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 2.5.0 and manifest protocol v2.
+First-party Software Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 2.5.0 and manifest protocol v2.
 The agent package version is `1.6.1`.
 
 It owns product outcomes, customer discovery, product strategy, prioritization, roadmaps, requirements, success measures, delivery alignment, and product-team design. It does not choose technical architecture, write production code, make legal conclusions, source candidates, hire workers, or spend money.
@@ -18,7 +18,7 @@ atomic team snapshot for an explicit manager decision when the plan is ready. A 
 contextual message is used only when model generation is unavailable.
 
 Requested revisions are applied and resubmitted when an authoritative constraint makes the change
-deterministic; otherwise the Product Manager asks its manager one focused refinement question.
+deterministic; otherwise the Software Product Manager asks its manager one focused refinement question.
 After approval it creates one idempotent, appropriately named product-team kanban board. The Chief
 of Staff then owns creation of one candidate-free hiring suggestion per approved added or increased
 role, making the same approved role set visible in the Hiring tab and in the Chief's manager
@@ -36,7 +36,7 @@ questions through the private direct agent conversation, and explicitly invokes 
 publication capability only after approval. The Architect owns technical direction; the Product
 Manager retains product scope and priority.
 
-When an executive finalizes a product-team recommendation outside the Product Manager's reporting
+When an executive finalizes a product-team recommendation outside the Software Product Manager's reporting
 conversation, the runtime resolves the current manager and routes the atomic resource-change
 request into the protected manager chat. Agent managers receive a targeted durable event; human
 managers retain the stricter requirement that approval originate from their direct conversation.
@@ -44,8 +44,8 @@ managers retain the stricter requirement that approval originate from their dire
 ## Build and test
 
 ```powershell
-dotnet build CSweet.Agent.ProductManager.slnx
-dotnet test CSweet.Agent.ProductManager.slnx
+dotnet build CSweet.Agent.SoftwareProductManager.slnx
+dotnet test CSweet.Agent.SoftwareProductManager.slnx
 ```
 
 Requirements are .NET 10, `CSweet.Agent.SDK` 2.5.0, `CSweet.Memory`, an approved protocol-v2 installation, an active managing employee, and the grants in [GRANTS.md](GRANTS.md).

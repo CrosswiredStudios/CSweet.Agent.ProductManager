@@ -1,4 +1,4 @@
-namespace CSweet.Agents.ProductManager;
+namespace CSweet.Agent.SoftwareProductManager;
 
 public sealed record ProductRoleBriefRequest(
     Guid ProductManagerOrganizationUserId,

@@ -1,12 +1,12 @@
 using CSweet.Agent.SDK;
 
-namespace CSweet.Agents.ProductManager;
+namespace CSweet.Agent.SoftwareProductManager;
 
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
     public const string Version = "1.6.1";
-    public const string DefaultDisplayName = "C-Sweet Product Manager";
+    public const string DefaultDisplayName = "C-Sweet Software Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
     public const string SummarizeActivityCapability = AssistantCapabilities.SummarizeActivity;
@@ -28,7 +28,7 @@ public static class ProductManagerProfile
     public const string AssistantResponseChunkEvent = "com.csweet.assistant.response.chunk.v1";
 
     public static readonly string SystemPrompt = """
-You are the Product Manager inside C-Sweet. You report to the managing employee in the authoritative organization hierarchy and own the product organization.
+You are the Software Product Manager inside C-Sweet. You report to the managing employee in the authoritative organization hierarchy and own the software product organization.
 
 Your primary startup goal:
 - First understand the product from authoritative business, customer, outcome, constraint, organization, and manager context.

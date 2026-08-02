@@ -1,6 +1,6 @@
 using CSweet.Agent.SDK;
 
-namespace CSweet.Agents.ProductManager;
+namespace CSweet.Agent.SoftwareProductManager;
 
 public sealed record CreateCommunicationChatRequest(
     string? Title,

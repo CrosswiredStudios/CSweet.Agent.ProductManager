@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/CSweet.Agent.SoftwareProductManager/CSweet.Agent.SoftwareProductManager.csproj" />
+  <Project Path="tests/CSweet.Agent.SoftwareProductManager.Tests/CSweet.Agent.SoftwareProductManager.Tests.csproj" />
+</Solution>

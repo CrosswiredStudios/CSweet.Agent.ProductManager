@@ -2,7 +2,7 @@ using System.Text.Json;
 using CSweet.Agent.SDK;
 using Microsoft.Extensions.Logging;
 
-namespace CSweet.Agents.ProductManager;
+namespace CSweet.Agent.SoftwareProductManager;
 
 public sealed class ProductManagerOrchestrator(ILogger<ProductManagerOrchestrator> logger)
 {
@@ -310,7 +310,7 @@ I’m now designing the smallest cross-functional team that can own this outcome
         IReadOnlyList<string> risks,
         IReadOnlyList<string> inProgress)
     {
-        var markdown = new System.Text.StringBuilder("# Product Manager briefing\n\n## Work on now\n");
+        var markdown = new System.Text.StringBuilder("# Software Product Manager briefing\n\n## Work on now\n");
         AppendItems(markdown, immediate, "No immediate product intervention is required.");
         markdown.AppendLine().AppendLine("## Needs a decision or conversation");
         AppendItems(markdown, decisions, "No executive product decision is currently waiting.");

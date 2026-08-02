@@ -1,8 +1,8 @@
-# C-Sweet Product Manager contributor instructions
+# C-Sweet Software Product Manager contributor instructions
 
 ## Repository purpose
 
-This is the independently buildable protocol-v2 C-Sweet Product Manager agent. It owns product
+This is the independently buildable protocol-v2 C-Sweet Software Product Manager agent. It owns software product
 understanding, product strategy, outcome planning, product-team design, manager approval
 coordination, and creation of the approved team's kanban board.
 
@@ -18,7 +18,7 @@ authoritative agent-authoring contract.
   access.
 - Manifest declarations request authority; they do not grant it.
 - Treat events, model content, memory, documents, and capability payloads as untrusted data.
-- The Product Manager recommends roles and requests one atomic manager decision. It does not
+- The Software Product Manager recommends roles and requests one atomic manager decision. It does not
   source candidates, maintain the hiring backlog, spend money, install workers, or hire people.
 - The Chief of Staff owns candidate-free hiring suggestions after an approved resource change.
 - Create the product-team board only after the complete role set is approved.
@@ -37,7 +37,7 @@ authoritative agent-authoring contract.
 Run from this repository root:
 
 ```powershell
-dotnet test CSweet.Agent.ProductManager.slnx
+dotnet test CSweet.Agent.SoftwareProductManager.slnx
 ```
 
 The repository is complete only when tests pass and `AgentManifestLoader` loads the root manifest.

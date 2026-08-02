@@ -1,6 +1,6 @@
 using CSweet.Agent.SDK;
 
-namespace CSweet.Agents.ProductManager.Tests;
+namespace CSweet.Agent.SoftwareProductManager.Tests;
 
 public sealed class ResourceChangeRoutingTests
 {

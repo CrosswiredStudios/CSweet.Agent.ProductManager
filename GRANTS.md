@@ -1,6 +1,6 @@
-# Product Manager capability grants
+# Software Product Manager capability grants
 
-This document is the human-readable grant catalog for the C-Sweet Product Manager agent. The source
+This document is the human-readable grant catalog for the C-Sweet Software Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
 catalog was last verified against package version `1.6.1` and manifest protocol `2.0`.
 
@@ -28,7 +28,7 @@ policy at runtime.
 
 | Grant | Scope | Feature |
 |---|---|---|
-| `platform.llm.chat-stream.v1` | organization | Generate streamed Product Manager responses. |
+| `platform.llm.chat-stream.v1` | organization | Generate streamed Software Product Manager responses. |
 
 ### Business and operating context
 
@@ -59,12 +59,12 @@ policy at runtime.
 | `communication.chat.read.v1` | organization | Verify and read the current manager conversation before proposing a team change. |
 | `agent.onboarding.complete.v1` | organization | Acknowledge this installation's durable onboarding event after its initial manager message is complete. |
 | `platform.management.resource-change.propose.v1` | organization | Submit one auditable, atomic desired-team snapshot to the current manager. |
-| `platform.management.resource-change.read.v1` | organization | Read the Product Manager's pending and decided team snapshots. |
+| `platform.management.resource-change.read.v1` | organization | Read the Software Product Manager's pending and decided team snapshots. |
 | `work.board.create` | organization | Create one idempotent product-team kanban board after the complete role set is approved. |
 
 The manager is resolved from the authoritative organization snapshot and may be the CEO, Chief of
 Staff, another human employee, or another agent. A finalized team created while another executive
-is speaking with the Product Manager is routed into the protected manager conversation. Agent
+is speaking with the Software Product Manager is routed into the protected manager conversation. Agent
 managers receive the atomic request without borrowing the executive's chat turn; human managers
 must review it from their own direct conversation.
 
@@ -86,11 +86,11 @@ of Staff. Calls target that manager's exact installation and validate the report
 | `software-architecture.design.v1` | organization | Software Architect | Produce a typed, read-only system design and incremental delivery plan from approved product requirements. |
 | `software-architecture.publish-plan.v1` | organization | Software Architect | Publish the explicitly approved architecture plan as planned sprints and developer-ready tickets. |
 
-The Product Manager retains product scope, priority, acceptance criteria, and the explicit publish
+The Software Product Manager retains product scope, priority, acceptance criteria, and the explicit publish
 decision. Direct agent conversation carries clarification and feedback; only the separate publish
 capability authorizes board mutations.
 
-## Capabilities provided by the Product Manager
+## Capabilities provided by the Software Product Manager
 
 ### General agent and management services
 
@@ -112,7 +112,7 @@ capability authorizes board mutations.
 
 ## Deliberately excluded grants
 
-The Product Manager recommends product roles, reporting lines, and hiring order but does not receive:
+The Software Product Manager recommends product roles, reporting lines, and hiring order but does not receive:
 
 - `platform.hiring-recommendation.list.v1`
 - `platform.hiring-recommendation.upsert.v1`

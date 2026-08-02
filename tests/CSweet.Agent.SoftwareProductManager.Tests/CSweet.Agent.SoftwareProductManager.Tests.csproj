@@ -13,7 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(CSweetAgentSdkRepositoryRoot)\src\CSweet.Agent.SDK\CSweet.Agent.SDK.csproj" Condition="'$(UseLocalCSweetAgentSdk)' == 'true'" />
-    <ProjectReference Include="..\..\src\CSweet.Agents.ProductManager\CSweet.Agents.ProductManager.csproj" />
+    <ProjectReference Include="..\..\src\CSweet.Agent.SoftwareProductManager\CSweet.Agent.SoftwareProductManager.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="Xunit" />

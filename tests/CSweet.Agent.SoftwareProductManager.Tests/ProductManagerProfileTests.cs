@@ -5,7 +5,7 @@ using CSweet.WorkManagement.Contracts;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace CSweet.Agents.ProductManager.Tests;
+namespace CSweet.Agent.SoftwareProductManager.Tests;
 
 public sealed class ProductManagerProfileTests
 {
@@ -14,7 +14,10 @@ public sealed class ProductManagerProfileTests
     {
         using var document = JsonDocument.Parse(File.ReadAllText(ManifestPath()));
         var root = document.RootElement;
+        Assert.Equal("com.csweet.product-manager", ProductManagerProfile.AgentId);
+        Assert.Equal("C-Sweet Software Product Manager", ProductManagerProfile.DefaultDisplayName);
         Assert.Equal(ProductManagerProfile.AgentId, root.GetProperty("id").GetString());
+        Assert.Equal(ProductManagerProfile.DefaultDisplayName, root.GetProperty("name").GetString());
         Assert.Equal(ProductManagerProfile.Version, root.GetProperty("version").GetString());
         var provides = root.GetProperty("provides").EnumerateArray()
             .Select(x => x.GetProperty("name").GetString()).ToHashSet();
@@ -94,8 +97,8 @@ public sealed class ProductManagerProfileTests
         var project = await File.ReadAllTextAsync(Path.Combine(
             Path.GetDirectoryName(manifestPath)!,
             "src",
-            "CSweet.Agents.ProductManager",
-            "CSweet.Agents.ProductManager.csproj"));
+            "CSweet.Agent.SoftwareProductManager",
+            "CSweet.Agent.SoftwareProductManager.csproj"));
         Assert.Contains("CSweet.Agent.SDK\" Version=\"2.5.0", project, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
