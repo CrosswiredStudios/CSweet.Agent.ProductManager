@@ -1,7 +1,7 @@
 # C-Sweet Software Product Manager
 
 First-party Software Product Manager agent for C-Sweet, built on `CSweet.Agent.SDK` 2.7.0 and manifest protocol v2.
-The agent package version is `1.7.1`.
+The agent package version is `1.7.2`.
 
 It owns product outcomes, customer discovery, product strategy, prioritization, roadmaps, requirements, success measures, delivery alignment, and product-team design. It does not choose technical architecture, write production code, make legal conclusions, source candidates, hire workers, or spend money.
 
@@ -35,6 +35,11 @@ Manager requests a typed architecture draft, reviews it for product alignment, r
 questions through the private direct agent conversation, and explicitly invokes the separate
 publication capability only after approval. The Architect owns technical direction; the Product
 Manager retains product scope and priority.
+
+An explicit direct message from the active Software Architect is an actionable planning trigger.
+The Product Manager reconciles the board, reads its actual manager conversation for authoritative
+repository and product decisions, and advances architecture publication and sprint readiness until
+a real governance decision is missing.
 
 When an executive finalizes a product-team recommendation outside the Software Product Manager's reporting
 conversation, the runtime resolves the current manager and routes the atomic resource-change

@@ -3,6 +3,14 @@ using CSweet.Agent.SDK;
 
 namespace CSweet.Agent.SoftwareProductManager;
 
+internal static class AgentMessageContextKeys
+{
+    public const string SenderOrganizationUserId = "senderOrganizationUserId";
+    public const string SenderDisplayName = "senderDisplayName";
+    public const string SenderEmployeeType = "senderEmployeeType";
+    public const string SenderRole = "senderRole";
+}
+
 public sealed record CreateCommunicationChatRequest(
     string? Title,
     string? Description,

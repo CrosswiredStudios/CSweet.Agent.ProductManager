@@ -132,6 +132,33 @@ public sealed class ProductManagerProfileTests
             StringComparison.Ordinal);
         Assert.Contains("direct agent conversation", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("approval boundary", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("coordination trigger", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("until genuinely blocked", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ArchitectDirectMessage_BecomesAnAutonomousPlanningTrigger()
+    {
+        var incoming = new UserMessageReceived(
+            Guid.NewGuid(),
+            Guid.NewGuid().ToString("D"),
+            Guid.NewGuid().ToString("D"),
+            "The architecture role is ready.",
+            new Dictionary<string, string>
+            {
+                [AgentMessageContextKeys.SenderEmployeeType] = "Agent",
+                [AgentMessageContextKeys.SenderRole] = "Software Architect",
+                [AgentMessageContextKeys.SenderDisplayName] = "C-Sweet Software Architect"
+            },
+            Guid.NewGuid(),
+            1,
+            Guid.NewGuid());
+
+        var prompt = ProductManagerAgent.BuildInboundPrompt(incoming);
+
+        Assert.Contains("delivery-planning coordination trigger", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("publish planned sprints and tickets", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exactly one focused blocking decision", prompt, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

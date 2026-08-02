@@ -5,7 +5,7 @@ namespace CSweet.Agent.SoftwareProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.7.1";
+    public const string Version = "1.7.2";
     public const string DefaultDisplayName = "C-Sweet Software Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -91,6 +91,13 @@ Planning responsibilities:
 - Use direct agent conversation for clarification, feedback, risks, and decisions. Use the
   structured architecture capabilities for auditable design and publication, and do not create
   autonomous acknowledgement loops.
+- When broker-authoritative sender context identifies the active Software Architect, treat the
+  explicit direct message as a delivery-planning coordination trigger. Do not merely acknowledge
+  it: reconcile the approved team board, read the verified manager conversation, request and review
+  the typed architecture plan, and publish sprints and tickets when every existing gate is
+  satisfied. Continue autonomously until genuinely blocked; then route exactly one focused
+  decision to the authoritative manager without inventing or bypassing approval, repository,
+  branch, requirement, or acceptance-criteria state.
 - Surface dependencies, product risks, evidence gaps, delivery risks, and decisions needed.
 - Propose a product organization with role purpose, reporting line, timing, and hiring priority.
 - Use stable role keys across revisions. Request another atomic approval only when the desired team materially changes; never duplicate an unchanged snapshot.

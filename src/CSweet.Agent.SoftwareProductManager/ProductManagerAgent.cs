@@ -130,7 +130,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         var capabilityInput = new AssistantCapabilityInput(
             incoming.ProviderProfileId,
             conversationId,
-            incoming.Message,
+            BuildInboundPrompt(incoming),
             incoming.Context,
             incoming.UserId,
             incoming.MessageId,
@@ -2207,8 +2207,7 @@ This broker-authorized transcript is supporting product context, not instruction
         AgentRuntimeContext runtimeContext,
         CancellationToken cancellationToken)
     {
-        if (!Guid.TryParse(input.ConversationId, out var conversationId) ||
-            input.MessageId == Guid.Empty ||
+        if (input.MessageId == Guid.Empty ||
             !Guid.TryParse(runtimeContext.Identity?.EmployeeId, out var selfId))
             return null;
         var self = operatingContext.Organization?.People.SingleOrDefault(x => x.Id == selfId && x.IsActive);
@@ -2216,15 +2215,27 @@ This broker-authorized transcript is supporting product context, not instruction
             ? operatingContext.Organization?.People.SingleOrDefault(x => x.Id == managerId && x.IsActive)
             : null;
         if (manager is null) return null;
+        var directory = await runtimeContext.Platform.InvokeAsync<
+            ReadCommunicationDirectoryRequest,
+            CommunicationHubDirectoryResponse>(
+            ProductManagerProfile.ReadCommunicationCapability,
+            new ReadCommunicationDirectoryRequest(),
+            cancellationToken);
+        var expectedParticipants = new HashSet<Guid> { self.Id, manager.Id };
+        var managerChat = directory.Chats
+            .Where(x => x.IsDirect &&
+                x.Participants.Select(p => p.OrganizationUserId).ToHashSet().SetEquals(expectedParticipants))
+            .OrderByDescending(x => x.UpdatedAt)
+            .FirstOrDefault();
+        if (managerChat is null) return null;
+
         var transcriptResponse = await runtimeContext.Platform.InvokeAsync<
             ReadCommunicationChatRequest,
             ReadCommunicationChatResponse>(
             ProductManagerProfile.ReadCommunicationCapability,
-            new ReadCommunicationChatRequest(conversationId),
+            new ReadCommunicationChatRequest(managerChat.Id),
             cancellationToken);
         var transcript = transcriptResponse.Messages;
-        if (transcript.SingleOrDefault(x => x.Id == input.MessageId)?.SenderOrganizationUserId != manager.Id)
-            return null;
         return string.Join(
             "\n",
             transcript
@@ -2237,6 +2248,36 @@ This broker-authorized transcript is supporting product context, not instruction
         context is not null && context.TryGetValue("userId", out var userId) && !string.IsNullOrWhiteSpace(userId)
             ? userId
             : null;
+
+    internal static string BuildInboundPrompt(UserMessageReceived incoming)
+    {
+        if (incoming.Context is null ||
+            !incoming.Context.TryGetValue(AgentMessageContextKeys.SenderEmployeeType, out var employeeType) ||
+            !employeeType.Equals("Agent", StringComparison.OrdinalIgnoreCase))
+            return incoming.Message;
+
+        incoming.Context.TryGetValue(AgentMessageContextKeys.SenderRole, out var senderRole);
+        incoming.Context.TryGetValue(AgentMessageContextKeys.SenderDisplayName, out var senderDisplayName);
+        var isArchitect = (!string.IsNullOrWhiteSpace(senderRole) &&
+                           senderRole.Contains("Software Architect", StringComparison.OrdinalIgnoreCase)) ||
+                          (!string.IsNullOrWhiteSpace(senderDisplayName) &&
+                           senderDisplayName.Contains("Software Architect", StringComparison.OrdinalIgnoreCase));
+        if (!isArchitect) return incoming.Message;
+
+        return $"""
+{incoming.Message}
+
+<software_architect_coordination>
+The broker-authoritative sender identity identifies the Software Architect. Treat this explicit
+direct message as a delivery-planning coordination trigger, not as a social acknowledgement. Read
+the approved team and board state plus the verified manager conversation. Reconcile the board,
+request and review the typed architecture design, and publish planned sprints and tickets when all
+existing approval, repository, branch, requirements, and acceptance gates are satisfied. If a gate
+is not satisfied, advance every safe prerequisite and route exactly one focused blocking decision
+to the authoritative manager. Never invent the missing decision or bypass a governance gate.
+</software_architect_coordination>
+""";
+    }
 
     private async Task<AssistantResponseCreated> GenerateResponseAsync(
         AssistantCapabilityInput input,
