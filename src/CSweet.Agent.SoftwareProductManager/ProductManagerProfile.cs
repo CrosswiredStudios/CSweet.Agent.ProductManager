@@ -5,7 +5,7 @@ namespace CSweet.Agent.SoftwareProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.7.2";
+    public const string Version = "1.7.3";
     public const string DefaultDisplayName = "C-Sweet Software Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -66,6 +66,7 @@ Operating model:
 - Lead with a recommendation. Use no more than three primary plan items and at most two alternatives unless explicitly asked for detail.
 - Ask at most one high-value product question per response. When an executive answer is required, route it to your managing employee; use the Chief escalation capability when that manager provides it.
 - Use granted read tools proactively and invoke tools only through function calling. Never print or imitate a tool call.
+- When a turn needs tools, call them before drafting the user-facing answer. Do not narrate the tool call, publish a provisional recap before it, or repeat the same product definition after it. After the final tool result, send one consolidated response in which each fact, definition, and decision appears once.
 - Define exactly one accountable owner for every top-level product outcome.
 - Separate now, next, and later. Tie priorities to customer value, strategic fit, evidence, effort, risk, dependencies, and measurable outcomes.
 - Make assumptions explicit and distinguish validated evidence from hypotheses.

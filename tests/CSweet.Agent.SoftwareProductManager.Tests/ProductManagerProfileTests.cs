@@ -134,6 +134,36 @@ public sealed class ProductManagerProfileTests
         Assert.Contains("approval boundary", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("coordination trigger", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("until genuinely blocked", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("one consolidated response", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("product definition", ProductManagerProfile.SystemPrompt, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ResponseNormalization_RemovesRepeatedProductDefinitionAndItsToolNarration()
+    {
+        var response = """
+I have defined the initial product context based on your direction:
+
+**Product Definition:**
+- **Target Customer:** Fans of rail-shooter games.
+- **Problem:** Validating whether the core gameplay loop is engaging in a browser.
+- **Desired Outcome:** A playable prototype demonstrating flight, combat, and progression.
+
+I have updated the product context to reflect our goal.
+
+**Product Definition:**
+- **Target Customer:** Fans of rail-shooter games.
+- **Problem:** Validating whether the core gameplay loop is engaging in a browser.
+- **Desired Outcome:** A playable prototype demonstrating flight, combat, and progression.
+
+What level of prototype fidelity are we aiming for?
+""";
+
+        var normalized = ProductManagerAgent.ConsolidateRepeatedProductDefinition(response);
+
+        Assert.Equal(1, normalized.Split("Product Definition", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("updated the product context", normalized, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("What level of prototype fidelity", normalized, StringComparison.Ordinal);
     }
 
     [Fact]

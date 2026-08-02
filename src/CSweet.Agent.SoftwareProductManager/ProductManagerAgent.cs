@@ -172,12 +172,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                     usage.Add(update.Usage);
                 }
 
-                if (string.IsNullOrEmpty(update.Delta))
-                {
-                    continue;
-                }
-
-                builder.Append(update.Delta);
+                ApplyAssistantUpdate(builder, update);
             }
 
             if (ClaimsApprovalAction(builder.ToString()) &&
@@ -208,7 +203,7 @@ Use its structured result as the only authority for whether an approval is pendi
                     boardState: boardState))
                 {
                     if (update.Usage is not null) usage.Add(update.Usage);
-                    if (!string.IsNullOrEmpty(update.Delta)) builder.Append(update.Delta);
+                    ApplyAssistantUpdate(builder, update);
                 }
             }
 
@@ -238,7 +233,7 @@ Retry now. The ensure_software_team_board tool is required. Use its structured r
                     boardState: boardState))
                 {
                     if (update.Usage is not null) usage.Add(update.Usage);
-                    if (!string.IsNullOrEmpty(update.Delta)) builder.Append(update.Delta);
+                    ApplyAssistantUpdate(builder, update);
                 }
             }
         }
@@ -338,6 +333,7 @@ Retry now. The ensure_software_team_board tool is required. Use its structured r
 
         var verifiedResponse = EnsureAccurateApprovalStatus(builder.ToString(), submissionState.ToolResult);
         verifiedResponse = EnsureAccurateBoardStatus(verifiedResponse, boardState.ToolResult);
+        verifiedResponse = ConsolidateRepeatedProductDefinition(verifiedResponse);
         builder.Clear();
         builder.Append(verifiedResponse);
         await PublishChunkAsync(context, message.EventId, new AssistantResponseChunk(
@@ -1952,6 +1948,14 @@ This broker-authorized transcript is supporting product context, not instruction
         await foreach (var update in agent.RunStreamingAsync(prompt, session, options: null, cancellationToken))
         {
             var usage = ExtractUsage(update.Contents);
+            if (update.Contents.Any(content => content is FunctionCallContent))
+            {
+                // A model can emit a provisional recap before deciding to use a tool. The chat
+                // surface buffers the turn, so discard that draft and retain only the consolidated
+                // response produced after the tool result.
+                yield return new AssistantStreamUpdate(string.Empty, usage, StartsNewDraft: true);
+                continue;
+            }
             if (!string.IsNullOrEmpty(update.Text))
             {
                 yield return new AssistantStreamUpdate(update.Text, usage);
@@ -2297,14 +2301,143 @@ to the authoritative manager. Never invent the missing decision or bypass a gove
             cancellationToken,
             allowResourceChangeApprovalTool))
         {
-            builder.Append(update.Delta);
+            ApplyAssistantUpdate(builder, update);
         }
 
         return new AssistantResponseCreated(
             input.ConversationId,
-            builder.ToString(),
+            ConsolidateRepeatedProductDefinition(builder.ToString()),
             ProposedActions: [],
             DateTimeOffset.UtcNow);
+    }
+
+    private static void ApplyAssistantUpdate(StringBuilder builder, AssistantStreamUpdate update)
+    {
+        if (update.StartsNewDraft)
+        {
+            builder.Clear();
+        }
+
+        if (!string.IsNullOrEmpty(update.Delta))
+        {
+            builder.Append(update.Delta);
+        }
+    }
+
+    internal static string ConsolidateRepeatedProductDefinition(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response)) return response;
+
+        var newline = response.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+        var lines = response.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
+        var seenDefinitions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var changed = false;
+
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (!IsProductDefinitionHeading(lines[index])) continue;
+
+            var sectionEnd = index + 1;
+            while (sectionEnd < lines.Count && IsProductDefinitionBodyLine(lines, sectionEnd))
+            {
+                sectionEnd++;
+            }
+
+            var signature = string.Join('\n', lines
+                .Skip(index + 1)
+                .Take(sectionEnd - index - 1)
+                .Select(NormalizeDefinitionLine)
+                .Where(line => line.Length > 0));
+            if (signature.Length == 0 || seenDefinitions.Add(signature))
+            {
+                index = sectionEnd - 1;
+                continue;
+            }
+
+            var removalStart = FindRedundantToolNarrationStart(lines, index);
+            lines.RemoveRange(removalStart, sectionEnd - removalStart);
+            CollapseAdjacentBlankLines(lines);
+            changed = true;
+            index = Math.Max(-1, removalStart - 1);
+        }
+
+        return changed ? string.Join(newline, lines).Trim() : response;
+    }
+
+    private static bool IsProductDefinitionHeading(string line)
+    {
+        var normalized = line.Trim().TrimStart('#').Trim();
+        normalized = normalized.Trim('*', '_', '`', ' ');
+        return normalized.TrimEnd(':').Equals("Product Definition", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsProductDefinitionBodyLine(IReadOnlyList<string> lines, int index)
+    {
+        var line = lines[index];
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            var next = index + 1;
+            while (next < lines.Count && string.IsNullOrWhiteSpace(lines[next])) next++;
+            return next < lines.Count && IsMarkdownListLine(lines[next]);
+        }
+
+        return IsMarkdownListLine(line) || char.IsWhiteSpace(line[0]);
+    }
+
+    private static bool IsMarkdownListLine(string line)
+    {
+        var trimmed = line.TrimStart();
+        if (trimmed.StartsWith("- ", StringComparison.Ordinal) ||
+            trimmed.StartsWith("* ", StringComparison.Ordinal) ||
+            trimmed.StartsWith("+ ", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var digitCount = 0;
+        while (digitCount < trimmed.Length && char.IsDigit(trimmed[digitCount])) digitCount++;
+        return digitCount > 0 && digitCount + 1 < trimmed.Length &&
+               trimmed[digitCount] == '.' && trimmed[digitCount + 1] == ' ';
+    }
+
+    private static string NormalizeDefinitionLine(string line) =>
+        string.Join(' ', line.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+
+    private static int FindRedundantToolNarrationStart(IReadOnlyList<string> lines, int headingIndex)
+    {
+        var paragraphEnd = headingIndex - 1;
+        while (paragraphEnd >= 0 && string.IsNullOrWhiteSpace(lines[paragraphEnd])) paragraphEnd--;
+        if (paragraphEnd < 0 || IsMarkdownListLine(lines[paragraphEnd])) return headingIndex;
+
+        var paragraphStart = paragraphEnd;
+        while (paragraphStart > 0 &&
+               !string.IsNullOrWhiteSpace(lines[paragraphStart - 1]) &&
+               !IsMarkdownListLine(lines[paragraphStart - 1]) &&
+               !IsProductDefinitionHeading(lines[paragraphStart - 1]))
+        {
+            paragraphStart--;
+        }
+
+        var paragraph = string.Join(' ', lines.Skip(paragraphStart).Take(paragraphEnd - paragraphStart + 1))
+            .ToLowerInvariant();
+        var describesToolUpdate = paragraph.Contains("updated", StringComparison.Ordinal) ||
+                                  paragraph.Contains("saved", StringComparison.Ordinal) ||
+                                  paragraph.Contains("recorded", StringComparison.Ordinal) ||
+                                  paragraph.Contains("persisted", StringComparison.Ordinal);
+        var describesProductContext = paragraph.Contains("product context", StringComparison.Ordinal) ||
+                                      paragraph.Contains("product definition", StringComparison.Ordinal);
+        return describesToolUpdate && describesProductContext ? paragraphStart : headingIndex;
+    }
+
+    private static void CollapseAdjacentBlankLines(List<string> lines)
+    {
+        for (var index = lines.Count - 1; index > 0; index--)
+        {
+            if (string.IsNullOrWhiteSpace(lines[index]) && string.IsNullOrWhiteSpace(lines[index - 1]))
+            {
+                lines.RemoveAt(index);
+            }
+        }
     }
 
     internal static bool ClaimsApprovalSubmission(string response)
@@ -2544,7 +2677,10 @@ to the authoritative manager. Never invent the missing decision or bypass a gove
         return usage;
     }
 
-    private sealed record AssistantStreamUpdate(string Delta, UsageDetails? Usage);
+    private sealed record AssistantStreamUpdate(
+        string Delta,
+        UsageDetails? Usage,
+        bool StartsNewDraft = false);
 }
 
 internal sealed class ResourceChangeRoutingException(string message) : InvalidOperationException(message);
