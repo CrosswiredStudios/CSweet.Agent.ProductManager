@@ -437,14 +437,63 @@ public sealed class ProductManagerProfileTests
     }
 
     [Fact]
-    public async Task ApprovedTeam_CreatesIdempotentBoardAndAcknowledgesManager()
+    public void TwoColumnBoardRepair_PreservesIdsAndBuildsExactWorkflow()
+    {
+        var boardId = Guid.NewGuid();
+        var toDoId = Guid.NewGuid();
+        var doneId = Guid.NewGuid();
+        var detail = new WorkBoardDetail(
+            new WorkBoardSummary(boardId, "Software", "", false, false, 1, []),
+            [
+                new WorkBoardColumn(toDoId, "To Do", "ToDo", 0, "Disabled", null),
+                new WorkBoardColumn(doneId, "Done", "Done", 1, "Disabled", null)
+            ],
+            []);
+
+        var repaired = ProductManagerAgent.BuildReconciledSoftwareBoardColumns(detail);
+
+        Assert.Equal(
+            ["Backlog", "Ready For Development", "In Development", "Dev Complete", "In Testing", "Ready To Merge", "Done"],
+            repaired.Select(x => x.Name));
+        Assert.Equal(toDoId, repaired[0].Id);
+        Assert.Equal(doneId, repaired[^1].Id);
+        Assert.Null(repaired[1].Id);
+    }
+
+    [Fact]
+    public void BoardRepair_RejectsOccupiedUnmatchedColumn()
+    {
+        var boardId = Guid.NewGuid();
+        var customId = Guid.NewGuid();
+        var detail = new WorkBoardDetail(
+            new WorkBoardSummary(boardId, "Software", "", false, false, 2, []),
+            [new WorkBoardColumn(customId, "Design Review", "InProgress", 0, "Disabled", null)],
+            [new WorkItem(Guid.NewGuid(), customId, null, null, "Task", "Review", "", "Active", "Medium", null, 1, 1, null)]);
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ProductManagerAgent.BuildReconciledSoftwareBoardColumns(detail));
+
+        Assert.Contains("occupied unmatched", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UnverifiedBoardClaim_IsRejected()
+    {
+        const string claim = "The Kanban board has been created and configured with all seven columns.";
+
+        Assert.True(ProductManagerAgent.ClaimsBoardProvisioningAction(claim));
+        var verified = ProductManagerAgent.EnsureAccurateBoardStatus(claim, null);
+        Assert.Contains("could not verify", verified, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("has been created", verified, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ApprovedTeam_AcknowledgesApprovalWithoutProvisioningBoard()
     {
         var organizationId = Guid.NewGuid();
         var requestId = Guid.NewGuid();
         var conversationId = Guid.NewGuid();
-        CreateWorkBoardRequest? boardRequest = null;
-        ConfigureWorkBoardColumnsRequest? columnsRequest = null;
-        ConfigureSoftwareOrchestrationTemplateRequest? templateRequest = null;
+        var boardMutationCount = 0;
         SendCommunicationMessageRequest? messageRequest = null;
         var response = ResourceChange(
             requestId,
@@ -460,7 +509,7 @@ public sealed class ProductManagerProfileTests
                 WorkBoardCapabilities.Create,
                 (request, _) =>
                 {
-                    boardRequest = request;
+                    boardMutationCount++;
                     return Task.FromResult(new WorkBoardSummary(
                         Guid.NewGuid(), request.Name, request.Description ?? string.Empty,
                         false, false, 1, [WorkBoardCapabilities.Create]));
@@ -469,7 +518,7 @@ public sealed class ProductManagerProfileTests
                 WorkBoardCapabilities.ConfigureColumns,
                 (request, _) =>
                 {
-                    columnsRequest = request;
+                    boardMutationCount++;
                     return Task.FromResult(new WorkBoardDetail(
                         new WorkBoardSummary(
                             request.BoardId, "Software", "", false, false, 2,
@@ -483,7 +532,7 @@ public sealed class ProductManagerProfileTests
                 WorkOrchestrationCapabilities.ConfigureSoftwareTemplate,
                 (request, _) =>
                 {
-                    templateRequest = request;
+                    boardMutationCount++;
                     return Task.FromResult(new WorkOrchestrationPolicyRevision(
                         Guid.NewGuid(), Guid.NewGuid(), request.BoardId, 1, "Software delivery",
                         "ready", request.MergeMode,
@@ -520,18 +569,10 @@ public sealed class ProductManagerProfileTests
             context,
             CancellationToken.None);
 
-        Assert.NotNull(boardRequest);
-        Assert.Equal(
-            $"product-team-board:{response.RequesterOrganizationUserId:N}",
-            boardRequest.IdempotencyKey);
-        Assert.Contains("Product Team", boardRequest.Name, StringComparison.Ordinal);
-        Assert.Equal(
-            ["Backlog", "Ready For Development", "In Development", "Dev Complete", "In Testing", "Ready To Merge", "Done"],
-            columnsRequest!.Columns.Select(x => x.Name));
-        Assert.NotNull(templateRequest);
-        Assert.Equal(3, templateRequest.MaximumQualityCycles);
+        Assert.Equal(0, boardMutationCount);
         Assert.NotNull(messageRequest);
-        Assert.Contains("kanban board", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("wait until every approved role is filled", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Software QA", messageRequest.Content, StringComparison.Ordinal);
     }
 
     [Fact]

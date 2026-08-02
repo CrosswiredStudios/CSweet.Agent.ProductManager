@@ -16,6 +16,7 @@ namespace CSweet.Agent.SoftwareProductManager;
 public sealed class ProductManagerAgent : CSweetAgentBase
 {
     private const string ResourceChangeApprovalToolName = "request_resource_change_approval";
+    private const string EnsureSoftwareTeamBoardToolName = "ensure_software_team_board";
     internal const string TerminalResourceChangeChunkKind = "terminal-resource-change";
     internal const string ResourceChangeRequestIdMetadataKey = "resourceChangeRequestId";
 
@@ -125,6 +126,7 @@ public sealed class ProductManagerAgent : CSweetAgentBase
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         var sequence = 0;
         var submissionState = new ResourceChangeSubmissionState();
+        var boardState = new SoftwareBoardProvisioningState();
         var capabilityInput = new AssistantCapabilityInput(
             incoming.ProviderProfileId,
             conversationId,
@@ -162,7 +164,8 @@ public sealed class ProductManagerAgent : CSweetAgentBase
                 context,
                 operatingContext: null,
                 cancellationToken,
-                submissionState: submissionState))
+                submissionState: submissionState,
+                boardState: boardState))
             {
                 if (update.Usage is not null)
                 {
@@ -201,7 +204,38 @@ Use its structured result as the only authority for whether an approval is pendi
                     operatingContext: null,
                     cancellationToken,
                     requireResourceChangeApprovalTool: true,
-                    submissionState: submissionState))
+                    submissionState: submissionState,
+                    boardState: boardState))
+                {
+                    if (update.Usage is not null) usage.Add(update.Usage);
+                    if (!string.IsNullOrEmpty(update.Delta)) builder.Append(update.Delta);
+                }
+            }
+
+            if (ClaimsBoardProvisioningAction(builder.ToString()) && boardState.ToolResult is null)
+            {
+                _logger.LogWarning(
+                    "Software Product Manager drafted an unverified board-provisioning claim for conversation {ConversationId}; retrying with the guarded board tool required.",
+                    conversationId);
+                builder.Clear();
+                var retryInput = capabilityInput with
+                {
+                    Prompt = capabilityInput.Prompt + """
+
+
+The previous draft claimed that a software-team board was created or configured, but the guarded provisioning tool did not verify that outcome.
+Retry now. The ensure_software_team_board tool is required. Use its structured result as the only authority for board readiness.
+"""
+                };
+                await foreach (var update in StreamAssistantDeltasAsync(
+                    retryInput,
+                    ProductManagerProfile.ConverseCapability,
+                    context,
+                    operatingContext: null,
+                    cancellationToken,
+                    requireSoftwareBoardTool: true,
+                    submissionState: submissionState,
+                    boardState: boardState))
                 {
                     if (update.Usage is not null) usage.Add(update.Usage);
                     if (!string.IsNullOrEmpty(update.Delta)) builder.Append(update.Delta);
@@ -303,6 +337,7 @@ Use its structured result as the only authority for whether an approval is pendi
         }
 
         var verifiedResponse = EnsureAccurateApprovalStatus(builder.ToString(), submissionState.ToolResult);
+        verifiedResponse = EnsureAccurateBoardStatus(verifiedResponse, boardState.ToolResult);
         builder.Clear();
         builder.Append(verifiedResponse);
         await PublishChunkAsync(context, message.EventId, new AssistantResponseChunk(
@@ -548,36 +583,9 @@ Use its structured result as the only authority for whether an approval is pendi
                 "The Software Product Manager must have an active manager before team collaboration begins.");
 
         var memberIds = BuildDeliveryChatParticipants(team, self.Id, manager.Id);
-        var boards = await context.Platform.Work.ListBoardsAsync(
-            new WorkBoardListRequest(IncludeArchived: false), cancellationToken);
-        var boardKey = BuildBoardKey(request.RequesterOrganizationUserId);
-        var board = boards.SingleOrDefault(x =>
-                x.TeamId == teamId && string.Equals(x.Key, boardKey, StringComparison.OrdinalIgnoreCase))
-            ?? throw new InvalidOperationException(
-                "The approved software team does not have its configured board yet.");
-        var boardDetail = await context.Platform.Work.ReadBoardAsync(board.Id, cancellationToken);
-        var configured = await context.Platform.Work.ConfigureBoardColumnsAsync(
-            new ConfigureWorkBoardColumnsRequest(
-                board.Id,
-                boardDetail.Board.Revision,
-                SoftwareBoardColumns(),
-                $"product-team-board:{request.RequesterOrganizationUserId:N}:columns:v1"),
-            cancellationToken);
-        Guid Column(string name) => configured.Columns.Single(x =>
-            x.Name.Equals(name, StringComparison.Ordinal)).Id;
-        _ = await context.Platform.Work.ConfigureSoftwareTemplateAsync(
-            new ConfigureSoftwareOrchestrationTemplateRequest(
-                board.Id,
-                Column("Ready For Development"),
-                Column("In Development"),
-                Column("Dev Complete"),
-                Column("In Testing"),
-                Column("Ready To Merge"),
-                Column("Done"),
-                WorkMergeModes.ManagerApproval,
-                3,
-                $"product-team-board:{request.RequesterOrganizationUserId:N}:software-template:v1"),
-            cancellationToken);
+        var boardDetail = await EnsureSoftwareTeamBoardAsync(
+            request, team, context, cancellationToken);
+        var board = boardDetail.Board;
         var chat = await EnsureDeliveryChatAsync(
             team.Name, memberIds, context, cancellationToken);
         var repositories = await context.Platform.Work.ListTeamRepositoryOptionsAsync(
@@ -851,41 +859,8 @@ Use its structured result as the only authority for whether an approval is pendi
     {
         if (request.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase))
         {
-            var board = await context.Platform.InvokeAsync<CreateWorkBoardRequest, WorkBoardSummary>(
-                ProductManagerProfile.CreateWorkBoardCapability,
-                new CreateWorkBoardRequest(
-                    BuildProductBoardName(request.ProductGoal),
-                    $"Kanban board for the approved product-team plan: {request.ProductGoal}",
-                    $"product-team-board:{request.RequesterOrganizationUserId:N}")
-                {
-                    TeamId = request.TeamId,
-                    Key = BuildBoardKey(request.RequesterOrganizationUserId)
-                },
-                cancellationToken);
-            var configured = await context.Platform.Work.ConfigureBoardColumnsAsync(
-                new ConfigureWorkBoardColumnsRequest(
-                    board.Id,
-                    board.Revision,
-                    SoftwareBoardColumns(),
-                    $"product-team-board:{request.RequesterOrganizationUserId:N}:columns:v1"),
-                cancellationToken);
-            Guid Column(string name) => configured.Columns.Single(x =>
-                x.Name.Equals(name, StringComparison.Ordinal)).Id;
-            _ = await context.Platform.Work.ConfigureSoftwareTemplateAsync(
-                new ConfigureSoftwareOrchestrationTemplateRequest(
-                    board.Id,
-                    Column("Ready For Development"),
-                    Column("In Development"),
-                    Column("Dev Complete"),
-                    Column("In Testing"),
-                    Column("Ready To Merge"),
-                    Column("Done"),
-                    WorkMergeModes.ManagerApproval,
-                    3,
-                    $"product-team-board:{request.RequesterOrganizationUserId:N}:software-template:v1"),
-                cancellationToken);
-            return $"The complete team design is approved. I created and configured the **{board.Name}** software kanban board for the team. " +
-                   "The approved snapshot now governs team planning; sourcing and each eventual hire remain separately controlled.";
+            return "The complete team design is approved. I’ll wait until every approved role is filled, including the Software Architect, Software Developer, and Software QA, before provisioning and verifying the team’s delivery board. " +
+                   "The approved snapshot now governs hiring; sourcing and each eventual hire remain separately controlled.";
         }
 
         if (request.Status.Equals("RevisionRequested", StringComparison.OrdinalIgnoreCase))
@@ -943,6 +918,154 @@ Use its structured result as the only authority for whether an approval is pendi
         new(null, "Ready To Merge", "InProgress", "Disabled"),
         new(null, "Done", "Done", "Disabled")
     ];
+
+    internal async Task<WorkBoardDetail> EnsureSoftwareTeamBoardAsync(
+        ResourceChangeRequestResponse request,
+        AgentTeamContext team,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!request.Status.Equals("Approved", StringComparison.OrdinalIgnoreCase) ||
+            !Guid.TryParse(team.TeamId, out var teamId) ||
+            request.TeamId != teamId ||
+            !Guid.TryParse(context.InstallationId, out var installationId))
+            throw new InvalidOperationException("A current approved software-team roster is required before its board can be provisioned.");
+
+        var coverage = (team.RoleCoverage ?? [])
+            .GroupBy(x => NormalizeRoleIdentity(x.Role), StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Sum(item => item.Count), StringComparer.Ordinal);
+        var missingApprovedRoles = request.Roles
+            .Where(role => coverage.GetValueOrDefault(NormalizeRoleIdentity(role.Title)) < role.Headcount)
+            .Select(role => role.Title)
+            .ToList();
+        var missingMandatoryRoles = new[] { "Software Architect", "Software Developer", "Software QA" }
+            .Where(role => coverage.GetValueOrDefault(NormalizeRoleIdentity(role)) == 0)
+            .ToList();
+        var missingRoles = missingApprovedRoles.Concat(missingMandatoryRoles)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (missingRoles.Count > 0)
+            throw new InvalidOperationException(
+                "The approved roster is incomplete. Missing active role coverage: " + string.Join(", ", missingRoles) + ".");
+
+        var operatingContext = await _orchestrator.AssembleContextAsync(context, cancellationToken);
+        var self = operatingContext.Organization?.People.SingleOrDefault(x =>
+            x.AgentInstallationId == installationId && x.IsActive)
+            ?? throw new InvalidOperationException("The Software Product Manager does not have an active employee identity.");
+        var activeTeamBoards = (await context.Platform.Work.ListBoardsAsync(
+                new WorkBoardListRequest(IncludeArchived: false), cancellationToken))
+            .Where(x => !x.IsArchived && x.TeamId == teamId)
+            .ToList();
+        var expectedKey = BuildBoardKey(request.RequesterOrganizationUserId);
+        var keyed = activeTeamBoards.Where(x =>
+            string.Equals(x.Key, expectedKey, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (keyed.Count > 1)
+            throw new InvalidOperationException($"Multiple active boards use the expected key '{expectedKey}'. Board provisioning is ambiguous.");
+
+        WorkBoardSummary? board = keyed.SingleOrDefault();
+        if (board is null)
+        {
+            var managed = activeTeamBoards.Where(x => x.ManagerOrganizationUserId == self.Id).ToList();
+            board = managed.Count == 1
+                ? managed[0]
+                : activeTeamBoards.Count == 1
+                    ? activeTeamBoards[0]
+                    : null;
+            if (board is null && activeTeamBoards.Count > 0)
+                throw new InvalidOperationException("Multiple active boards match the approved team and no unique managed board can be selected safely.");
+        }
+
+        board ??= await context.Platform.Work.CreateBoardAsync(
+            new CreateWorkBoardRequest(
+                BuildProductBoardName(request.ProductGoal),
+                $"Kanban board for the approved product-team plan: {request.ProductGoal}",
+                $"product-team-board:{request.RequesterOrganizationUserId:N}:create:v2")
+            {
+                TeamId = teamId,
+                Key = expectedKey
+            },
+            cancellationToken);
+
+        var detail = await context.Platform.Work.ReadBoardAsync(board.Id, cancellationToken);
+        var desired = BuildReconciledSoftwareBoardColumns(detail);
+        if (!ColumnsMatch(detail.Columns, desired))
+        {
+            detail = await context.Platform.Work.ConfigureBoardColumnsAsync(
+                new ConfigureWorkBoardColumnsRequest(
+                    board.Id,
+                    detail.Board.Revision,
+                    desired,
+                    $"product-team-board:{request.RequesterOrganizationUserId:N}:columns:v2"),
+                cancellationToken);
+        }
+
+        Guid Column(string name) => detail.Columns.Single(x =>
+            x.Name.Equals(name, StringComparison.Ordinal)).Id;
+        _ = await context.Platform.Work.ConfigureSoftwareTemplateAsync(
+            new ConfigureSoftwareOrchestrationTemplateRequest(
+                board.Id,
+                Column("Ready For Development"),
+                Column("In Development"),
+                Column("Dev Complete"),
+                Column("In Testing"),
+                Column("Ready To Merge"),
+                Column("Done"),
+                WorkMergeModes.ManagerApproval,
+                3,
+                $"product-team-board:{request.RequesterOrganizationUserId:N}:software-template:v2"),
+            cancellationToken);
+
+        var verified = await context.Platform.Work.ReadBoardAsync(board.Id, cancellationToken);
+        var expected = SoftwareBoardColumns();
+        if (verified.Columns.Count != expected.Count ||
+            verified.Columns.OrderBy(x => x.Position).Select(x => (x.Name, x.Category, x.WipPolicy))
+                .SequenceEqual(expected.Select(x => (x.Name, x.Category, x.WipPolicy))) is false)
+            throw new InvalidOperationException("The software-team board could not be verified after configuration.");
+        return verified;
+    }
+
+    internal static IReadOnlyList<WorkBoardColumnConfiguration> BuildReconciledSoftwareBoardColumns(
+        WorkBoardDetail detail)
+    {
+        var existing = detail.Columns.OrderBy(x => x.Position).ToList();
+        var used = new HashSet<Guid>();
+        WorkBoardColumn? Match(string name, string category)
+        {
+            var exact = existing.FirstOrDefault(x => !used.Contains(x.Id) &&
+                x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+            if (exact is not null) return exact;
+            if (name == "Backlog")
+                return existing.FirstOrDefault(x => !used.Contains(x.Id) &&
+                    (x.Name.Equals("To Do", StringComparison.OrdinalIgnoreCase) ||
+                     (x.Category == "ToDo" && SoftwareBoardColumns().All(desired =>
+                         !desired.Name.Equals(x.Name, StringComparison.OrdinalIgnoreCase)))));
+            if (name == "Done")
+                return existing.FirstOrDefault(x => !used.Contains(x.Id) && x.Category == "Done");
+            return null;
+        }
+
+        var reconciled = SoftwareBoardColumns().Select(column =>
+        {
+            var match = Match(column.Name, column.Category);
+            if (match is not null) used.Add(match.Id);
+            return column with { Id = match?.Id };
+        }).ToList();
+        var occupiedUnmatched = existing
+            .Where(column => !used.Contains(column.Id) && detail.Items.Any(item => item.ColumnId == column.Id))
+            .Select(column => column.Name)
+            .ToList();
+        if (occupiedUnmatched.Count > 0)
+            throw new InvalidOperationException(
+                "Board repair would remove occupied unmatched columns: " + string.Join(", ", occupiedUnmatched) + ". Move those items explicitly first.");
+        return reconciled;
+    }
+
+    private static bool ColumnsMatch(
+        IReadOnlyList<WorkBoardColumn> actual,
+        IReadOnlyList<WorkBoardColumnConfiguration> expected) =>
+        expected.All(x => x.Id.HasValue) &&
+        actual.OrderBy(x => x.Position).Select(x => (x.Id, x.Name, x.Category, x.WipPolicy, x.WipLimit))
+            .SequenceEqual(expected.Select(x => (x.Id!.Value, x.Name, x.Category, x.WipPolicy, x.WipLimit)));
 
     private async Task HandleOnboardedAsync(
         AgentEventEnvelope message,
@@ -1517,7 +1640,9 @@ If the context is not sufficient to identify the deliverable responsibly, state 
         [EnumeratorCancellation] CancellationToken cancellationToken,
         bool allowResourceChangeApprovalTool = true,
         bool requireResourceChangeApprovalTool = false,
-        ResourceChangeSubmissionState? submissionState = null)
+        ResourceChangeSubmissionState? submissionState = null,
+        bool requireSoftwareBoardTool = false,
+        SoftwareBoardProvisioningState? boardState = null)
     {
         _logger.LogInformation(
             "Software Product Manager resolving chat client for provider {ProviderProfileId} and conversation {ConversationId}.",
@@ -1565,7 +1690,52 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                                 function.Name is
                                     "propose_resource_change" or
                                     ResourceChangeApprovalToolName or
-                                    "communication_chat_read");
+                                    "communication_chat_read" or
+                                    "create_work_board" or
+                                    "configure_work_board_columns" or
+                                    "configure_software_delivery_template" or
+                                    EnsureSoftwareTeamBoardToolName);
+        tools.Add(AIFunctionFactory.Create(
+            async (CancellationToken token) =>
+            {
+                if (boardState?.ToolResult is { } previousResult)
+                    return previousResult;
+                try
+                {
+                    if (!Guid.TryParse(runtimeContext.InstallationId, out var installationId))
+                        throw new InvalidOperationException("The Product Manager installation identity is invalid.");
+                    var roster = await ReadCompleteTeamRosterAsync(runtimeContext, token);
+                    var team = roster.Team
+                        ?? throw new InvalidOperationException("The current active team roster is unavailable.");
+                    if (!Guid.TryParse(team.TeamId, out var teamId))
+                        throw new InvalidOperationException("The current team identity is invalid.");
+                    var approved = await runtimeContext.Platform.ReadResourceChangesAsync(
+                        new ResourceChangeReadRequest(Statuses: ["Approved"]), token);
+                    var request = approved.Requests
+                        .Where(x => x.RequesterInstallationId == installationId && x.TeamId == teamId)
+                        .OrderByDescending(x => x.DecidedAt ?? x.CreatedAt)
+                        .FirstOrDefault()
+                        ?? throw new InvalidOperationException("No approved software-team plan is available for the current team.");
+                    var detail = await EnsureSoftwareTeamBoardAsync(request, team, runtimeContext, token);
+                    return boardState?.RecordSuccess(detail) ?? SoftwareBoardProvisioningToolResult.Success(detail);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    var diagnosticReference = Guid.NewGuid().ToString("N")[..12];
+                    _logger.LogWarning(exception,
+                        "The guarded software-team board tool was blocked for conversation {ConversationId}. Diagnostic {DiagnosticReference}.",
+                        input.ConversationId,
+                        diagnosticReference);
+                    var safeMessage = BuildSafeFailureMessage(exception, diagnosticReference);
+                    return boardState?.RecordFailure(safeMessage) ?? SoftwareBoardProvisioningToolResult.Failure(safeMessage);
+                }
+            },
+            EnsureSoftwareTeamBoardToolName,
+            "Idempotently reconcile and verify the board for the latest approved, fully hired software team. This is the only model-visible board provisioning operation. Only claim that the board is ready when succeeded=true; report error when it is false."));
         if (removedArchitecturePublishTools > 0)
         {
             tools.Add(AIFunctionFactory.Create(
@@ -1676,7 +1846,9 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                     Tools = tools,
                     ToolMode = requireResourceChangeApprovalTool
                         ? ChatToolMode.RequireSpecific(ResourceChangeApprovalToolName)
-                        : null
+                        : requireSoftwareBoardTool
+                            ? ChatToolMode.RequireSpecific(EnsureSoftwareTeamBoardToolName)
+                            : null
                 },
                 AIContextProviders = [memoryProvider]
             });
@@ -1705,6 +1877,14 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                         callId);
                     return ResourceChangeApprovalToolResult.Failure(
                         "The approval request was blocked because it did not originate from a guarded conversation turn. No approval is pending.");
+                }
+                if (functionName == EnsureSoftwareTeamBoardToolName && boardState is null)
+                {
+                    _logger.LogWarning(
+                        "Software Product Manager blocked board function {CallId} because the run has no guarded provisioning state.",
+                        callId);
+                    return SoftwareBoardProvisioningToolResult.Failure(
+                        "Board provisioning was blocked because it did not originate from a guarded conversation turn.");
                 }
                 try
                 {
@@ -2171,6 +2351,37 @@ This broker-authorized transcript is supporting product context, not instruction
                 """;
     }
 
+    internal static bool ClaimsBoardProvisioningAction(string response)
+    {
+        if (string.IsNullOrWhiteSpace(response)) return false;
+        var value = response.ToLowerInvariant();
+        var boardTarget = value.Contains("board", StringComparison.Ordinal) ||
+                          value.Contains("kanban", StringComparison.Ordinal);
+        var completedAction = value.Contains("created", StringComparison.Ordinal) ||
+                              value.Contains("configured", StringComparison.Ordinal) ||
+                              value.Contains("provisioned", StringComparison.Ordinal) ||
+                              value.Contains("reconciled", StringComparison.Ordinal) ||
+                              value.Contains("is ready", StringComparison.Ordinal) ||
+                              value.Contains("has been set up", StringComparison.Ordinal);
+        return boardTarget && completedAction;
+    }
+
+    internal static string EnsureAccurateBoardStatus(
+        string response,
+        SoftwareBoardProvisioningToolResult? toolResult)
+    {
+        if (toolResult is null)
+        {
+            return ClaimsBoardProvisioningAction(response)
+                ? "I could not verify a completed board operation. No board was reported as ready; please retry the guarded board provisioning action."
+                : response;
+        }
+        if (!toolResult.Succeeded || toolResult.Board is null)
+            return $"I could not provision and verify the software-team board. {toolResult.Error}";
+        if (!ClaimsBoardProvisioningAction(response)) return response;
+        return $"The **{toolResult.Board.Board.Name}** board is provisioned and verified with the seven-column software delivery workflow (board `{toolResult.Board.Board.Id:D}`).";
+    }
+
     private static async Task<ProductEscalationResponse> EscalateToChiefAsync(
         string topic,
         string question,
@@ -2317,5 +2528,28 @@ internal sealed record ResourceChangeApprovalToolResult(
         new(true, request, null);
 
     public static ResourceChangeApprovalToolResult Failure(string error) =>
+        new(false, null, error);
+}
+
+internal sealed class SoftwareBoardProvisioningState
+{
+    public SoftwareBoardProvisioningToolResult? ToolResult { get; private set; }
+
+    public SoftwareBoardProvisioningToolResult RecordSuccess(WorkBoardDetail board) =>
+        ToolResult = SoftwareBoardProvisioningToolResult.Success(board);
+
+    public SoftwareBoardProvisioningToolResult RecordFailure(string message) =>
+        ToolResult = SoftwareBoardProvisioningToolResult.Failure(message);
+}
+
+internal sealed record SoftwareBoardProvisioningToolResult(
+    bool Succeeded,
+    WorkBoardDetail? Board,
+    string? Error)
+{
+    public static SoftwareBoardProvisioningToolResult Success(WorkBoardDetail board) =>
+        new(true, board, null);
+
+    public static SoftwareBoardProvisioningToolResult Failure(string error) =>
         new(false, null, error);
 }
