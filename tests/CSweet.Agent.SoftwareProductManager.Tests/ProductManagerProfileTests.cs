@@ -99,7 +99,7 @@ public sealed class ProductManagerProfileTests
             "src",
             "CSweet.Agent.SoftwareProductManager",
             "CSweet.Agent.SoftwareProductManager.csproj"));
-        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.5.0", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.6.0", project, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
@@ -410,9 +410,9 @@ public sealed class ProductManagerProfileTests
     {
         var roles = new[]
         {
-            Role("design", "Product Designer", 1, "Now"),
-            Role("engineering", "Product Engineer", 2, "Now"),
-            Role("quality", "Quality Engineer", 3, "Next")
+            Role("architecture", "Software Architect", 1, "Now"),
+            Role("development", "Software Developer", 2, "Now"),
+            Role("quality", "Software QA", 3, "Now")
         };
         var finance = new FinancialOperatingProfileResponse(
             Guid.NewGuid(), "USD", null, null, null, null, null, null, 1, "Approval", 7);
@@ -422,6 +422,9 @@ public sealed class ProductManagerProfileTests
         Assert.Equal("Now", revised[0].Timing);
         Assert.Equal("Next", revised[1].Timing);
         Assert.Equal("Next", revised[2].Timing);
+        Assert.Equal(
+            ["Software Architect", "Software Developer", "Software QA"],
+            revised.Select(x => x.Title).ToArray());
     }
 
     [Fact]
@@ -440,6 +443,8 @@ public sealed class ProductManagerProfileTests
         var requestId = Guid.NewGuid();
         var conversationId = Guid.NewGuid();
         CreateWorkBoardRequest? boardRequest = null;
+        ConfigureWorkBoardColumnsRequest? columnsRequest = null;
+        ConfigureSoftwareOrchestrationTemplateRequest? templateRequest = null;
         SendCommunicationMessageRequest? messageRequest = null;
         var response = ResourceChange(
             requestId,
@@ -459,6 +464,31 @@ public sealed class ProductManagerProfileTests
                     return Task.FromResult(new WorkBoardSummary(
                         Guid.NewGuid(), request.Name, request.Description ?? string.Empty,
                         false, false, 1, [WorkBoardCapabilities.Create]));
+                })
+            .RegisterCapability<ConfigureWorkBoardColumnsRequest, WorkBoardDetail>(
+                WorkBoardCapabilities.ConfigureColumns,
+                (request, _) =>
+                {
+                    columnsRequest = request;
+                    return Task.FromResult(new WorkBoardDetail(
+                        new WorkBoardSummary(
+                            request.BoardId, "Software", "", false, false, 2,
+                            [WorkBoardCapabilities.Read, WorkBoardCapabilities.ConfigureColumns]),
+                        request.Columns.Select((column, index) => new WorkBoardColumn(
+                            Guid.NewGuid(), column.Name, column.Category, index,
+                            column.WipPolicy, column.WipLimit)).ToList(),
+                        []));
+                })
+            .RegisterCapability<ConfigureSoftwareOrchestrationTemplateRequest, WorkOrchestrationPolicyRevision>(
+                WorkOrchestrationCapabilities.ConfigureSoftwareTemplate,
+                (request, _) =>
+                {
+                    templateRequest = request;
+                    return Task.FromResult(new WorkOrchestrationPolicyRevision(
+                        Guid.NewGuid(), Guid.NewGuid(), request.BoardId, 1, "Software delivery",
+                        "ready", request.MergeMode,
+                        new WorkOrchestrationConcurrencyLimits(100, 25, 10, 5, 1),
+                        [], [], true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
                 })
             .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
                 ProductManagerProfile.SendCommunicationMessageCapability,
@@ -495,6 +525,11 @@ public sealed class ProductManagerProfileTests
             $"product-team-board:{response.RequesterOrganizationUserId:N}",
             boardRequest.IdempotencyKey);
         Assert.Contains("Product Team", boardRequest.Name, StringComparison.Ordinal);
+        Assert.Equal(
+            ["Backlog", "Ready For Development", "In Development", "Dev Complete", "In Testing", "Ready To Merge", "Done"],
+            columnsRequest!.Columns.Select(x => x.Name));
+        Assert.NotNull(templateRequest);
+        Assert.Equal(3, templateRequest.MaximumQualityCycles);
         Assert.NotNull(messageRequest);
         Assert.Contains("kanban board", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
     }
@@ -714,9 +749,77 @@ public sealed class ProductManagerProfileTests
         Assert.Equal(
             plan.TeamStructure.Select(x => x.Priority).Order().ToArray(),
             plan.TeamStructure.Select(x => x.Priority).ToArray());
+        Assert.Equal(
+            ["Software Architect", "Software Developer", "Software QA"],
+            plan.TeamStructure.Take(3).Select(x => x.Title).ToArray());
+        Assert.All(plan.TeamStructure.Take(3), role => Assert.Equal("Now", role.Timing));
+        Assert.All(plan.Alternatives, alternative => Assert.Equal(
+            ["Software Architect", "Software Developer", "Software QA"],
+            alternative.TeamStructure.Take(3).Select(x => x.Title).ToArray()));
         Assert.All(plan.TeamStructure, role => Assert.Equal(ProductManagerProfile.DefaultDisplayName, role.ReportsTo));
         Assert.NotEmpty(plan.HiringSequence);
         Assert.NotEmpty(plan.Assumptions);
+    }
+
+    [Fact]
+    public void DeliveryChatParticipants_IncludeEveryActiveMemberAndReportingManagerOnce()
+    {
+        var productManagerId = Guid.NewGuid();
+        var reportingManagerId = Guid.NewGuid();
+        var architectId = Guid.NewGuid();
+        var developerId = Guid.NewGuid();
+        var inactiveId = Guid.NewGuid();
+        var team = new AgentTeamContext(
+            Guid.NewGuid().ToString("D"),
+            "SOFTWARE",
+            "Software",
+            1,
+            productManagerId.ToString("D"),
+            "Product Manager",
+            [
+                new AgentTeammate(productManagerId.ToString("D"), "Product Manager", "Agent", null, "Software Product Manager", "Self", "Active"),
+                new AgentTeammate(architectId.ToString("D"), "Architect", "Agent", null, "Software Architect", "Peer", "Active"),
+                new AgentTeammate(developerId.ToString("D"), "Developer", "Agent", null, "Software Developer", "Peer", "Active"),
+                new AgentTeammate(inactiveId.ToString("D"), "Former QA", "Agent", null, "Software QA", "Peer", "Inactive")
+            ],
+            [],
+            4,
+            false);
+
+        var participants = ProductManagerAgent.BuildDeliveryChatParticipants(
+            team, productManagerId, reportingManagerId);
+
+        Assert.Equal(4, participants.Count);
+        Assert.Contains(productManagerId, participants);
+        Assert.Contains(reportingManagerId, participants);
+        Assert.Contains(architectId, participants);
+        Assert.Contains(developerId, participants);
+        Assert.DoesNotContain(inactiveId, participants);
+        Assert.Equal(participants.Count, participants.Distinct().Count());
+    }
+
+    [Fact]
+    public void FirstSprintReadiness_SelectsOnlyStoriesAndTasksFromLowestOrdinalSprint()
+    {
+        var firstSprintId = Guid.NewGuid();
+        var laterSprintId = Guid.NewGuid();
+        var firstStory = new PublishedArchitectureTicket("STORY-1", Guid.NewGuid(), firstSprintId, WorkItemKinds.Story);
+        var firstTask = new PublishedArchitectureTicket("TASK-1", Guid.NewGuid(), firstSprintId, WorkItemKinds.Task);
+        var firstEpic = new PublishedArchitectureTicket("EPIC-1", Guid.NewGuid(), firstSprintId, WorkItemKinds.Epic);
+        var laterStory = new PublishedArchitectureTicket("STORY-2", Guid.NewGuid(), laterSprintId, WorkItemKinds.Story);
+        var publication = new ArchitecturePublishResponse(
+            Guid.NewGuid(),
+            firstEpic.ItemId,
+            [
+                new PublishedArchitectureSprint(2, laterSprintId, "Sprint 2"),
+                new PublishedArchitectureSprint(1, firstSprintId, "Sprint 1")
+            ],
+            [firstStory, firstTask, firstEpic, laterStory],
+            DateTimeOffset.UtcNow);
+
+        var ready = ProductManagerAgent.SelectFirstSprintReadyTickets(publication);
+
+        Assert.Equal([firstStory.ItemId, firstTask.ItemId], ready.Select(x => x.ItemId).ToArray());
     }
 
     [Theory]

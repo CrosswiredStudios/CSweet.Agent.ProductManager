@@ -148,15 +148,32 @@ I’m now designing the smallest cross-functional team that can own this outcome
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Take(4)
             .ToList() ?? [];
-        if (roleSuggestions.Count == 0)
-            roleSuggestions = ["Product Designer / Researcher", "Product Engineer", "Quality Engineer"];
-
-        var team = roleSuggestions.Select((title, index) => new ProductTeamRole(
+        var mandatoryTitles = new[] { "Software Architect", "Software Developer", "Software QA" };
+        var team = mandatoryTitles.Select((title, index) => new ProductTeamRole(
             title,
             PurposeForRole(title),
             ProductManagerProfile.DefaultDisplayName,
-            index < 2 ? "Now" : "Next",
+            "Now",
             index + 1)).ToList();
+        var optional = roleSuggestions
+            .Where(title => mandatoryTitles.All(required =>
+                !NormalizeRole(title).Equals(NormalizeRole(required), StringComparison.Ordinal) &&
+                !(required == "Software Developer" &&
+                  (title.Contains("Engineer", StringComparison.OrdinalIgnoreCase) ||
+                   title.Contains("Developer", StringComparison.OrdinalIgnoreCase))) &&
+                !(required == "Software QA" &&
+                  (title.Contains("Quality", StringComparison.OrdinalIgnoreCase) ||
+                   title.Contains("QA", StringComparison.OrdinalIgnoreCase) ||
+                   title.Contains("Test", StringComparison.OrdinalIgnoreCase))) &&
+                !(required == "Software Architect" && title.Contains("Architect", StringComparison.OrdinalIgnoreCase))))
+            .Take(2)
+            .ToList();
+        team.AddRange(optional.Select((title, index) => new ProductTeamRole(
+            title,
+            PurposeForRole(title),
+            ProductManagerProfile.DefaultDisplayName,
+            "Next",
+            mandatoryTitles.Length + index + 1)));
         var hiring = team.OrderBy(x => x.Priority).Select(x => $"{x.Priority}. {x.Title} — {x.Purpose}").ToList();
         var strategy = new List<string>
         {
@@ -172,7 +189,7 @@ I’m now designing the smallest cross-functional team that can own this outcome
             new(
                 "Lean validation pod",
                 "Lower cost and faster learning, with less parallel delivery capacity.",
-                team.Take(Math.Min(2, team.Count)).ToList()),
+                team.Take(mandatoryTitles.Length).ToList()),
             new(
                 "Parallel delivery pod",
                 "More throughput and independence, with higher coordination and workforce cost.",
@@ -269,6 +286,9 @@ I’m now designing the smallest cross-functional team that can own this outcome
         "exit" => "Exit",
         _ => stage
     };
+
+    private static string NormalizeRole(string value) =>
+        new(value.Trim().ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
 
     private static string PurposeForRole(string title)
     {

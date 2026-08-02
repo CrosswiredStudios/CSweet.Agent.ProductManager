@@ -485,7 +485,7 @@ Use its structured result as the only authority for whether an approval is pendi
         if (request is null)
             return;
 
-        var roster = await context.Platform.ReadTeamRosterAsync(token: cancellationToken);
+        var roster = await ReadCompleteTeamRosterAsync(context, cancellationToken);
         var coverage = (roster.Team?.RoleCoverage ?? [])
             .GroupBy(x => NormalizeRoleIdentity(x.Role), StringComparer.Ordinal)
             .ToDictionary(x => x.Key, x => x.Sum(item => item.Count), StringComparer.Ordinal);
@@ -513,6 +513,329 @@ Use its structured result as the only authority for whether an approval is pendi
                 content,
                 $"hiring-recommendation-fulfilled:{message.EventId:N}:product-manager"),
             cancellationToken);
+        var mandatorySoftwareRolesCovered = new[]
+        {
+            "Software Architect", "Software Developer", "Software QA"
+        }.All(role => coverage.GetValueOrDefault(NormalizeRoleIdentity(role)) > 0);
+        if (roster.Team is not null && gaps.Count == 0 && mandatorySoftwareRolesCovered)
+            await StartSoftwareTeamCollaborationAsync(
+                request, roster.Team, content, context, cancellationToken);
+    }
+
+    private async Task StartSoftwareTeamCollaborationAsync(
+        ResourceChangeRequestResponse request,
+        AgentTeamContext team,
+        string hiringStatus,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        if (!Guid.TryParse(team.TeamId, out var teamId) ||
+            !Guid.TryParse(context.InstallationId, out var installationId))
+            throw new InvalidOperationException("The approved software team identity is invalid.");
+        var operatingContext = await _orchestrator.AssembleContextAsync(context, cancellationToken);
+        var organization = operatingContext.Organization
+            ?? throw new InvalidOperationException(
+                "The organization snapshot is required to create the software-team chat.");
+        var self = organization.People.SingleOrDefault(x =>
+            x.AgentInstallationId == installationId && x.IsActive)
+            ?? throw new InvalidOperationException(
+                "The Software Product Manager does not have an active employee identity.");
+        var manager = self.ReportsToId.HasValue
+            ? organization.People.SingleOrDefault(x => x.Id == self.ReportsToId.Value && x.IsActive)
+            : null;
+        if (manager is null)
+            throw new InvalidOperationException(
+                "The Software Product Manager must have an active manager before team collaboration begins.");
+
+        var memberIds = BuildDeliveryChatParticipants(team, self.Id, manager.Id);
+        var boards = await context.Platform.Work.ListBoardsAsync(
+            new WorkBoardListRequest(IncludeArchived: false), cancellationToken);
+        var boardKey = BuildBoardKey(request.RequesterOrganizationUserId);
+        var board = boards.SingleOrDefault(x =>
+                x.TeamId == teamId && string.Equals(x.Key, boardKey, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                "The approved software team does not have its configured board yet.");
+        var boardDetail = await context.Platform.Work.ReadBoardAsync(board.Id, cancellationToken);
+        var configured = await context.Platform.Work.ConfigureBoardColumnsAsync(
+            new ConfigureWorkBoardColumnsRequest(
+                board.Id,
+                boardDetail.Board.Revision,
+                SoftwareBoardColumns(),
+                $"product-team-board:{request.RequesterOrganizationUserId:N}:columns:v1"),
+            cancellationToken);
+        Guid Column(string name) => configured.Columns.Single(x =>
+            x.Name.Equals(name, StringComparison.Ordinal)).Id;
+        _ = await context.Platform.Work.ConfigureSoftwareTemplateAsync(
+            new ConfigureSoftwareOrchestrationTemplateRequest(
+                board.Id,
+                Column("Ready For Development"),
+                Column("In Development"),
+                Column("Dev Complete"),
+                Column("In Testing"),
+                Column("Ready To Merge"),
+                Column("Done"),
+                WorkMergeModes.ManagerApproval,
+                3,
+                $"product-team-board:{request.RequesterOrganizationUserId:N}:software-template:v1"),
+            cancellationToken);
+        var chat = await EnsureDeliveryChatAsync(
+            team.Name, memberIds, context, cancellationToken);
+        var repositories = await context.Platform.Work.ListTeamRepositoryOptionsAsync(
+            new TeamRepositoryOptionsRequest(teamId), cancellationToken);
+        var repositoryPrompt = repositories.Count == 0
+            ? "No repository is currently granted to both the Software Developer and Software QA. " +
+              "Please grant a shared repository with Developer read/push/governed-merge access and QA read access, then tell me which repository and base branch to use."
+            : "Please select the repository and base branch for the first sprint: " +
+              string.Join("; ", repositories.Select(x => $"{x.Name} (default: {x.DefaultBranch})")) + ".";
+        var kickoff = $"{hiringStatus}\n\nThe **{board.Name}** board is ready with the software workflow: " +
+                      "Backlog -> Ready For Development -> In Development -> Dev Complete -> " +
+                      $"In Testing -> Ready To Merge -> Done. {repositoryPrompt}";
+        _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            ProductManagerProfile.SendCommunicationMessageCapability,
+            new SendCommunicationMessageRequest(
+                chat.Id, kickoff, $"software-team-kickoff:{request.Id:N}"),
+            cancellationToken);
+        _ = await context.Platform.InvokeAsync<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            ProductManagerProfile.SendCommunicationMessageCapability,
+            new SendCommunicationMessageRequest(
+                request.ConversationId,
+                $"The complete software team and delivery board are ready. {repositoryPrompt}",
+                $"software-team-repository-selection:{request.Id:N}"),
+            cancellationToken);
+    }
+
+    private static async Task<CommunicationChatResponse> EnsureDeliveryChatAsync(
+        string teamName,
+        IReadOnlyList<Guid> participantIds,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        var title = $"{teamName} Delivery";
+        var expected = participantIds.ToHashSet();
+        var directory = await context.Platform.InvokeAsync<
+            ReadCommunicationDirectoryRequest,
+            CommunicationHubDirectoryResponse>(
+            ProductManagerProfile.ReadCommunicationCapability,
+            new ReadCommunicationDirectoryRequest(),
+            cancellationToken);
+        var existing = directory.Chats.FirstOrDefault(x =>
+            !x.IsDirect && x.IsPrivate && x.Title.Equals(title, StringComparison.Ordinal));
+        if (existing is not null)
+        {
+            var actual = existing.Participants.Select(x => x.OrganizationUserId).ToHashSet();
+            if (actual.SetEquals(expected)) return existing;
+            if (!existing.CanManage)
+                throw new InvalidOperationException(
+                    "The existing software-team delivery chat cannot be reconciled by this Product Manager.");
+            var modified = await context.Platform.InvokeAsync<
+                ModifyCommunicationChatRequest,
+                CommunicationHubActionResponse>(
+                CommunicationCapabilities.ChatModify,
+                new ModifyCommunicationChatRequest(
+                    existing.Id,
+                    title,
+                    "Private software delivery coordination for the approved team and its manager.",
+                    true,
+                    participantIds),
+                cancellationToken);
+            if (!modified.Succeeded || modified.Chat is null)
+                throw new InvalidOperationException(
+                    $"The software-team delivery chat could not be reconciled: {modified.Message}");
+            return modified.Chat;
+        }
+
+        var created = await context.Platform.InvokeAsync<
+            CreateCommunicationChatRequest,
+            CommunicationHubActionResponse>(
+            ProductManagerProfile.CreateCommunicationCapability,
+            new CreateCommunicationChatRequest(
+                title,
+                "Private software delivery coordination for the approved team and its manager.",
+                false,
+                true,
+                participantIds),
+            cancellationToken);
+        if (!created.Succeeded || created.Chat is null)
+            throw new InvalidOperationException(
+                $"The software-team delivery chat could not be created: {created.Message}");
+        return created.Chat;
+    }
+
+    private async Task<GuardedArchitecturePublishResult> PublishApprovedArchitectureAsync(
+        Guid boardId,
+        JsonElement design,
+        string approvalRationale,
+        Guid repositoryConnectionId,
+        string baseBranch,
+        int firstSprintSequence,
+        string idempotencyKey,
+        AssistantCapabilityInput source,
+        ProductOperatingContext operatingContext,
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(approvalRationale))
+            throw new ArgumentException("A Product Manager approval rationale is required.");
+        if (string.IsNullOrWhiteSpace(baseBranch))
+            throw new ArgumentException("The manager-selected base branch is required.");
+        if (firstSprintSequence <= 0)
+            throw new ArgumentException("The first sprint sequence must be positive.");
+        if (!Guid.TryParse(context.InstallationId, out var installationId))
+            throw new InvalidOperationException("The Software Product Manager installation identity is invalid.");
+        var organization = operatingContext.Organization
+            ?? throw new InvalidOperationException("The organization snapshot is required for publication.");
+        var self = organization.People.SingleOrDefault(x =>
+            x.AgentInstallationId == installationId && x.IsActive)
+            ?? throw new InvalidOperationException(
+                "The Software Product Manager does not have an active employee identity.");
+        var board = await context.Platform.Work.ReadBoardAsync(boardId, cancellationToken);
+        if (!board.Board.TeamId.HasValue)
+            throw new InvalidOperationException("The architecture board is not assigned to an approved team.");
+        var roster = await ReadCompleteTeamRosterAsync(context, cancellationToken);
+        if (roster.Team is null ||
+            !Guid.TryParse(roster.Team.TeamId, out var rosterTeamId) ||
+            rosterTeamId != board.Board.TeamId.Value)
+            throw new InvalidOperationException("The architecture board does not belong to this Product Manager's team.");
+
+        Guid InstallationForRole(string role)
+        {
+            var members = roster.Team.Members.Where(x =>
+                    string.Equals(x.TeamRole, role, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (members.Count != 1 || !Guid.TryParse(members[0].EmployeeId, out var employeeId))
+                throw new InvalidOperationException($"The team must have exactly one active {role}.");
+            return organization.People.SingleOrDefault(x => x.Id == employeeId && x.IsActive)
+                       ?.AgentInstallationId
+                   ?? throw new InvalidOperationException($"The active {role} installation is unavailable.");
+        }
+        var developerInstallationId = InstallationForRole("Software Developer");
+        var qualityInstallationId = InstallationForRole("Software QA");
+        _ = InstallationForRole("Software Architect");
+
+        var options = await context.Platform.Work.ListTeamRepositoryOptionsAsync(
+            new TeamRepositoryOptionsRequest(board.Board.TeamId.Value), cancellationToken);
+        if (options.All(x => x.RepositoryConnectionId != repositoryConnectionId))
+            throw new InvalidOperationException(
+                "The selected repository is not currently granted to both the Software Developer and Software QA.");
+        var conversationId = Guid.TryParse(source.ConversationId, out var parsedConversationId)
+            ? parsedConversationId
+            : (Guid?)null;
+        var publication = await context.Platform.InvokeAsync<
+            GuardedArchitecturePublishRequest,
+            ArchitecturePublishResponse>(
+            ProductManagerProfile.SoftwareArchitecturePublishCapability,
+            new GuardedArchitecturePublishRequest(
+                boardId,
+                design.Clone(),
+                new ArchitecturePublicationApproval(
+                    "Software Product Manager",
+                    approvalRationale.Trim(),
+                    DateTimeOffset.UtcNow,
+                    conversationId,
+                    source.MessageId == Guid.Empty ? null : source.MessageId),
+                idempotencyKey)
+            {
+                RepositoryConnectionId = repositoryConnectionId,
+                BaseBranch = baseBranch.Trim(),
+                FirstSprintSequence = firstSprintSequence,
+                AccountableOrganizationUserId = self.Id,
+                DeveloperInstallationId = developerInstallationId,
+                QualityInstallationId = qualityInstallationId
+            },
+            cancellationToken);
+
+        var readyTickets = SelectFirstSprintReadyTickets(publication);
+        var readyColumnId = (await context.Platform.Work.ReadBoardAsync(boardId, cancellationToken))
+            .Columns.Single(x => x.Name.Equals("Ready For Development", StringComparison.Ordinal)).Id;
+        var readyTicketIds = new List<Guid>();
+        foreach (var ticket in readyTickets)
+        {
+            var item = await context.Platform.Work.ReadItemAsync(
+                new WorkItemReference(boardId, ticket.ItemId), cancellationToken);
+            if (item.ColumnId != readyColumnId)
+            {
+                try
+                {
+                    item = await context.Platform.Work.MoveItemAsync(
+                        new MoveWorkItemRequest(
+                            boardId, item.Id, readyColumnId, item.Revision,
+                            $"software-architecture:{publication.PlanId:N}:ready:{item.Id:N}"),
+                        cancellationToken);
+                }
+                catch (PlatformCapabilityException exception)
+                    when (exception.Code == PlatformCapabilityErrorCode.Conflict)
+                {
+                    item = await context.Platform.Work.ReadItemAsync(
+                        new WorkItemReference(boardId, ticket.ItemId), cancellationToken);
+                    if (item.ColumnId != readyColumnId)
+                        item = await context.Platform.Work.MoveItemAsync(
+                            new MoveWorkItemRequest(
+                                boardId, item.Id, readyColumnId, item.Revision,
+                                $"software-architecture:{publication.PlanId:N}:ready:{item.Id:N}"),
+                            cancellationToken);
+                }
+            }
+            if (item.ColumnId == readyColumnId) readyTicketIds.Add(item.Id);
+        }
+        return new GuardedArchitecturePublishResult(publication, readyTicketIds);
+    }
+
+    internal static IReadOnlyList<Guid> BuildDeliveryChatParticipants(
+        AgentTeamContext team,
+        Guid productManagerId,
+        Guid reportingManagerId) =>
+        team.Members
+            .Where(x => !x.Presence.Equals("Inactive", StringComparison.OrdinalIgnoreCase))
+            .Select(x => Guid.TryParse(x.EmployeeId, out var id) ? id : Guid.Empty)
+            .Where(x => x != Guid.Empty)
+            .Append(productManagerId)
+            .Append(reportingManagerId)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+    internal static IReadOnlyList<PublishedArchitectureTicket> SelectFirstSprintReadyTickets(
+        ArchitecturePublishResponse publication)
+    {
+        var firstSprint = publication.Sprints.OrderBy(x => x.Ordinal).FirstOrDefault()
+            ?? throw new InvalidOperationException("The published architecture did not contain a sprint.");
+        return publication.Tickets.Where(x =>
+                x.SprintId == firstSprint.SprintId &&
+                (x.Kind.Equals(WorkItemKinds.Story, StringComparison.OrdinalIgnoreCase) ||
+                 x.Kind.Equals(WorkItemKinds.Task, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private static async Task<TeamRosterResponse> ReadCompleteTeamRosterAsync(
+        AgentRuntimeContext context,
+        CancellationToken cancellationToken)
+    {
+        const int pageSize = 100;
+        var first = await context.Platform.ReadTeamRosterAsync(
+            new TeamRosterRequest(1, pageSize), cancellationToken);
+        if (first.Team is null || !first.Team.HasMore) return first;
+
+        var members = first.Team.Members.ToList();
+        var page = 2;
+        while (members.Count < first.Team.TotalMemberCount)
+        {
+            var next = await context.Platform.ReadTeamRosterAsync(
+                new TeamRosterRequest(page++, pageSize), cancellationToken);
+            if (next.Team is null || next.Team.Members.Count == 0) break;
+            members.AddRange(next.Team.Members);
+            if (!next.Team.HasMore) break;
+        }
+
+        var distinctMembers = members
+            .GroupBy(x => x.EmployeeId, StringComparer.OrdinalIgnoreCase)
+            .Select(x => x.First())
+            .ToList();
+        return new TeamRosterResponse(first.Team with
+        {
+            Members = distinctMembers,
+            TotalMemberCount = distinctMembers.Count,
+            HasMore = false
+        });
     }
 
     private static string NormalizeRoleIdentity(string value) =>
@@ -535,10 +858,33 @@ Use its structured result as the only authority for whether an approval is pendi
                     $"Kanban board for the approved product-team plan: {request.ProductGoal}",
                     $"product-team-board:{request.RequesterOrganizationUserId:N}")
                 {
-                    TeamId = request.TeamId
+                    TeamId = request.TeamId,
+                    Key = BuildBoardKey(request.RequesterOrganizationUserId)
                 },
                 cancellationToken);
-            return $"The complete team design is approved. I created the **{board.Name}** kanban board for the team. " +
+            var configured = await context.Platform.Work.ConfigureBoardColumnsAsync(
+                new ConfigureWorkBoardColumnsRequest(
+                    board.Id,
+                    board.Revision,
+                    SoftwareBoardColumns(),
+                    $"product-team-board:{request.RequesterOrganizationUserId:N}:columns:v1"),
+                cancellationToken);
+            Guid Column(string name) => configured.Columns.Single(x =>
+                x.Name.Equals(name, StringComparison.Ordinal)).Id;
+            _ = await context.Platform.Work.ConfigureSoftwareTemplateAsync(
+                new ConfigureSoftwareOrchestrationTemplateRequest(
+                    board.Id,
+                    Column("Ready For Development"),
+                    Column("In Development"),
+                    Column("Dev Complete"),
+                    Column("In Testing"),
+                    Column("Ready To Merge"),
+                    Column("Done"),
+                    WorkMergeModes.ManagerApproval,
+                    3,
+                    $"product-team-board:{request.RequesterOrganizationUserId:N}:software-template:v1"),
+                cancellationToken);
+            return $"The complete team design is approved. I created and configured the **{board.Name}** software kanban board for the team. " +
                    "The approved snapshot now governs team planning; sourcing and each eventual hire remain separately controlled.";
         }
 
@@ -583,6 +929,20 @@ Use its structured result as the only authority for whether an approval is pendi
 
         return $"The team design is now {request.Status}.";
     }
+
+    private static string BuildBoardKey(Guid requesterOrganizationUserId) =>
+        $"SPM{requesterOrganizationUserId:N}"[..12].ToUpperInvariant();
+
+    private static IReadOnlyList<WorkBoardColumnConfiguration> SoftwareBoardColumns() =>
+    [
+        new(null, "Backlog", "ToDo", "Disabled"),
+        new(null, "Ready For Development", "ToDo", "Disabled"),
+        new(null, "In Development", "InProgress", "Disabled"),
+        new(null, "Dev Complete", "InProgress", "Disabled"),
+        new(null, "In Testing", "InProgress", "Disabled"),
+        new(null, "Ready To Merge", "InProgress", "Disabled"),
+        new(null, "Done", "Done", "Disabled")
+    ];
 
     private async Task HandleOnboardedAsync(
         AgentEventEnvelope message,
@@ -1017,15 +1377,32 @@ If the context is not sufficient to identify the deliverable responsibly, state 
 
     private static IReadOnlyList<string> RequiredCapabilitiesFor(string title)
     {
+        if (title.Equals("Software Architect", StringComparison.OrdinalIgnoreCase))
+            return
+            [
+                ProductManagerProfile.SoftwareArchitectureDesignCapability,
+                ProductManagerProfile.SoftwareArchitecturePublishCapability
+            ];
+        if (title.Equals("Software Developer", StringComparison.OrdinalIgnoreCase))
+            return ["software-development.implement.v1", "work.execution.run.v1"];
+        if (title.Equals("Software QA", StringComparison.OrdinalIgnoreCase))
+            return ["software-quality.validate.v1", "work.execution.run.v1"];
         if (title.Contains("Design", StringComparison.OrdinalIgnoreCase) ||
             title.Contains("Research", StringComparison.OrdinalIgnoreCase))
             return ["product-research", "product-design"];
         if (title.Contains("Quality", StringComparison.OrdinalIgnoreCase) ||
             title.Contains("QA", StringComparison.OrdinalIgnoreCase) ||
             title.Contains("Test", StringComparison.OrdinalIgnoreCase))
-            return ["quality-assurance"];
+            return ["software-quality.validate.v1", "work.execution.run.v1"];
         if (title.Contains("Architect", StringComparison.OrdinalIgnoreCase))
-            return ["software-architecture"];
+            return
+            [
+                ProductManagerProfile.SoftwareArchitectureDesignCapability,
+                ProductManagerProfile.SoftwareArchitecturePublishCapability
+            ];
+        if (title.Contains("Developer", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("Engineer", StringComparison.OrdinalIgnoreCase))
+            return ["software-development.implement.v1", "work.execution.run.v1"];
         return ["product-delivery"];
     }
 
@@ -1180,11 +1557,44 @@ If the context is not sufficient to identify the deliverable responsibly, state 
             memoryOptions);
 
         var tools = (await runtimeContext.GetModelToolsAsync(cancellationToken)).ToList();
+        var removedArchitecturePublishTools = tools.RemoveAll(tool =>
+            tool is AIFunctionDeclaration function &&
+            function.Name.Contains("architecture", StringComparison.OrdinalIgnoreCase) &&
+            function.Name.Contains("publish", StringComparison.OrdinalIgnoreCase));
         tools.RemoveAll(tool => tool is AIFunctionDeclaration function &&
                                 function.Name is
                                     "propose_resource_change" or
                                     ResourceChangeApprovalToolName or
                                     "communication_chat_read");
+        if (removedArchitecturePublishTools > 0)
+        {
+            tools.Add(AIFunctionFactory.Create(
+                (Guid boardId,
+                    JsonElement design,
+                    string approvalRationale,
+                    Guid repositoryConnectionId,
+                    string baseBranch,
+                    int firstSprintSequence,
+                    string idempotencyKey,
+                    CancellationToken token) =>
+                    PublishApprovedArchitectureAsync(
+                        boardId,
+                        design,
+                        approvalRationale,
+                        repositoryConnectionId,
+                        baseBranch,
+                        firstSprintSequence,
+                        idempotencyKey,
+                        input,
+                        operatingContext,
+                        runtimeContext,
+                        token),
+                "publish_approved_software_architecture",
+                "Publish the complete Software Product Manager-approved architecture through the bound Software Architect. " +
+                "Use only after the manager explicitly selects a shared Developer/QA repository and base branch. " +
+                "This guarded operation pins accountable Developer and QA assignments and moves every Story and Task " +
+                "in the earliest published sprint to Ready For Development while leaving later sprints in Backlog."));
+        }
         if (allowResourceChangeApprovalTool)
         {
             tools.Add(AIFunctionFactory.Create(

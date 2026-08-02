@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CSweet.Agent.SDK;
 
 namespace CSweet.Agent.SoftwareProductManager;
@@ -21,6 +22,20 @@ public sealed record CommunicationHubActionResponse(
     string? ErrorCode,
     string Message,
     CommunicationChatResponse? Chat = null);
+
+public sealed record CommunicationHubDirectoryResponse(
+    IReadOnlyList<CommunicationChatResponse> Chats);
+
+public sealed record ReadCommunicationDirectoryRequest { }
+
+public sealed record ModifyCommunicationChatRequest(
+    Guid ChatId,
+    string Title,
+    string? Description,
+    bool IsPrivate,
+    IReadOnlyList<Guid> ParticipantOrganizationUserIds,
+    IReadOnlyList<Guid>? AudienceRoleIds = null,
+    IReadOnlyList<Guid>? AudienceWorkstreamIds = null);
 
 public sealed record CommunicationChatResponse(
     Guid Id,
@@ -105,3 +120,38 @@ public sealed record ProductOperatingContext(
     ManagementCycleResponse? ManagementCycle,
     ProductRoleBriefResponse? RoleBrief,
     IReadOnlyList<string> UnavailableCapabilities);
+
+public sealed record ArchitecturePublicationApproval(
+    string ApproverRole,
+    string Rationale,
+    DateTimeOffset ApprovedAt,
+    Guid? SourceConversationId = null,
+    Guid? SourceMessageId = null);
+
+public sealed record GuardedArchitecturePublishRequest(
+    Guid BoardId,
+    JsonElement Design,
+    ArchitecturePublicationApproval Approval,
+    string IdempotencyKey)
+{
+    public Guid RepositoryConnectionId { get; init; }
+    public string? BaseBranch { get; init; }
+    public int FirstSprintSequence { get; init; }
+    public Guid AccountableOrganizationUserId { get; init; }
+    public Guid DeveloperInstallationId { get; init; }
+    public Guid QualityInstallationId { get; init; }
+}
+
+public sealed record ArchitecturePublishResponse(
+    Guid PlanId,
+    Guid EpicId,
+    IReadOnlyList<PublishedArchitectureSprint> Sprints,
+    IReadOnlyList<PublishedArchitectureTicket> Tickets,
+    DateTimeOffset PublishedAt);
+
+public sealed record PublishedArchitectureSprint(int Ordinal, Guid SprintId, string Name);
+public sealed record PublishedArchitectureTicket(string Key, Guid ItemId, Guid SprintId, string Kind);
+
+public sealed record GuardedArchitecturePublishResult(
+    ArchitecturePublishResponse Publication,
+    IReadOnlyList<Guid> ReadyTicketIds);
