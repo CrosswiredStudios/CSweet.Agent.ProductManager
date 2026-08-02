@@ -2214,7 +2214,7 @@ This broker-authorized transcript is supporting product context, not instruction
         var manager = self?.ReportsToId is { } managerId
             ? operatingContext.Organization?.People.SingleOrDefault(x => x.Id == managerId && x.IsActive)
             : null;
-        if (manager is null) return null;
+        if (self is null || manager is null) return null;
         var directory = await runtimeContext.Platform.InvokeAsync<
             ReadCommunicationDirectoryRequest,
             CommunicationHubDirectoryResponse>(
