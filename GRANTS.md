@@ -2,10 +2,10 @@
 
 This document is the human-readable grant catalog for the C-Sweet Software Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.7.5` and manifest protocol `2.0`.
+catalog was last verified against package version `2.0.0` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
-`CSweet.Agent.SDK` 2.8.0; manifest-audit tests reject names missing from that catalog.
+`CSweet.Agent.SDK` 3.0.0; manifest-audit tests reject names missing from that catalog.
 
 ## How to read this catalog
 
@@ -72,7 +72,8 @@ policy at runtime.
 | `work.item.create` | team | Create idempotent decision-ready planning tickets on the approved board. |
 | `work.item.move` | team | Move first-sprint Stories and Tasks to Ready For Development. |
 | `work.orchestration.software-template.configure` | team | Publish the bounded software delivery workflow. |
-| `git.repository.team-options.v1` | team | List safe repository choices shared by Developer and QA. |
+| `source-control.repository.team-options.v2` | team | List only code projects enabled by the current team's delivery policy. |
+| `source-control.repository.provision.v2` | organization | Request one policy-bounded private Managed GitHub project without receiving provider credentials. |
 
 The manager is resolved from the authoritative organization snapshot and may be the CEO, Chief of
 Staff, another human employee, or another agent. A finalized team created while another executive
@@ -139,6 +140,8 @@ Chief of Staff or another authorized managing employee.
 ## Security boundary
 
 - The agent has no credential declarations and no web access.
+- Repository selection and provisioning are brokered by C-Sweet; the agent receives neither Git
+  credentials nor provider API authority.
 - Read, proposal, communication, and cross-agent capabilities are separate grants.
 - A recommendation does not imply approval, hiring, or execution.
 - Board creation occurs only after manager approval and does not grant candidate or hiring authority.

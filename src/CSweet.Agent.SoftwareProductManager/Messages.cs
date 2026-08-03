@@ -75,8 +75,7 @@ public sealed record GuardedArchitecturePublishRequest(
     ArchitecturePublicationApproval Approval,
     string IdempotencyKey)
 {
-    public Guid RepositoryConnectionId { get; init; }
-    public string? BaseBranch { get; init; }
+    public Guid RepositoryId { get; init; }
     public int FirstSprintSequence { get; init; }
     public Guid AccountableOrganizationUserId { get; init; }
     public Guid DeveloperInstallationId { get; init; }

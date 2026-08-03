@@ -712,10 +712,9 @@ Retry now. The ensure_software_team_board tool is required. Use its structured r
         var repositories = await context.Platform.Work.ListTeamRepositoryOptionsAsync(
             new TeamRepositoryOptionsRequest(teamId), cancellationToken);
         var repositoryPrompt = repositories.Count == 0
-            ? "No repository is currently granted to both the Software Developer and Software QA. " +
-              "Please grant a shared repository with Developer read/push/governed-merge access and QA read access, then tell me which repository and base branch to use."
-            : "Please select the repository and base branch for the first sprint: " +
-              string.Join("; ", repositories.Select(x => $"{x.Name} (default: {x.DefaultBranch})")) + ".";
+            ? "No code project is ready for this software team. Set up source control or request a Managed GitHub project before delivery planning."
+            : "Please select the code project for the first sprint: " +
+              string.Join("; ", repositories.Select(x => $"{x.Name} ({x.DeliveryKind})")) + ".";
         if (architects.Count != 1 || developers.Count == 0 || quality.Count == 0)
         {
             var blocker = architects.Count switch
@@ -835,8 +834,7 @@ If a product decision is missing, return exactly one focused blocker to me.
         Guid boardId,
         JsonElement design,
         string approvalRationale,
-        Guid repositoryConnectionId,
-        string baseBranch,
+        Guid repositoryId,
         int firstSprintSequence,
         string idempotencyKey,
         AssistantCapabilityInput source,
@@ -846,8 +844,6 @@ If a product decision is missing, return exactly one focused blocker to me.
     {
         if (string.IsNullOrWhiteSpace(approvalRationale))
             throw new ArgumentException("A Product Manager approval rationale is required.");
-        if (string.IsNullOrWhiteSpace(baseBranch))
-            throw new ArgumentException("The manager-selected base branch is required.");
         if (firstSprintSequence <= 0)
             throw new ArgumentException("The first sprint sequence must be positive.");
         if (!Guid.TryParse(context.InstallationId, out var installationId))
@@ -889,9 +885,9 @@ If a product decision is missing, return exactly one focused blocker to me.
 
         var options = await context.Platform.Work.ListTeamRepositoryOptionsAsync(
             new TeamRepositoryOptionsRequest(board.Board.TeamId.Value), cancellationToken);
-        if (options.All(x => x.RepositoryConnectionId != repositoryConnectionId))
+        if (options.All(x => x.RepositoryId != repositoryId))
             throw new InvalidOperationException(
-                "The selected repository is not currently granted to both the Software Developer and Software QA.");
+                "The selected code project is not ready under the team's delivery policy.");
         var conversationId = Guid.TryParse(source.ConversationId, out var parsedConversationId)
             ? parsedConversationId
             : (Guid?)null;
@@ -910,8 +906,7 @@ If a product decision is missing, return exactly one focused blocker to me.
                     source.MessageId == Guid.Empty ? null : source.MessageId),
                 idempotencyKey)
             {
-                RepositoryConnectionId = repositoryConnectionId,
-                BaseBranch = baseBranch.Trim(),
+                RepositoryId = repositoryId,
                 FirstSprintSequence = firstSprintSequence,
                 AccountableOrganizationUserId = self.Id,
                 DeveloperInstallationId = developerInstallationIds[0],
@@ -1951,8 +1946,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                 (Guid boardId,
                     JsonElement design,
                     string approvalRationale,
-                    Guid repositoryConnectionId,
-                    string baseBranch,
+                    Guid repositoryId,
                     int firstSprintSequence,
                     string idempotencyKey,
                     CancellationToken token) =>
@@ -1960,8 +1954,7 @@ If the context is not sufficient to identify the deliverable responsibly, state 
                         boardId,
                         design,
                         approvalRationale,
-                        repositoryConnectionId,
-                        baseBranch,
+                        repositoryId,
                         firstSprintSequence,
                         idempotencyKey,
                         input,

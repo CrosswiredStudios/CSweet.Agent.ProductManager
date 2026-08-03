@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Software Product Manager",
-  "version": "1.7.5",
+  "version": "2.0.0",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -544,7 +544,8 @@
     { "name": "work.item.create", "scope": "team", "purpose": "Create idempotent decision-ready planning tickets during approved agent collaboration" },
     { "name": "work.item.move", "scope": "team", "purpose": "Move the first planned sprint's Stories and Tasks to Ready For Development" },
     { "name": "work.orchestration.software-template.configure", "scope": "team", "purpose": "Publish the bounded software delivery policy for the approved team board" },
-    { "name": "git.repository.team-options.v1", "scope": "team", "purpose": "Present only repositories granted to both the Software Developer and Software QA" },
+    { "name": "source-control.repository.team-options.v2", "scope": "team", "purpose": "Present only code projects enabled by the current team's delivery policy" },
+    { "name": "source-control.repository.provision.v2", "scope": "organization", "purpose": "Request one policy-bounded private Managed GitHub project when explicitly granted" },
     { "name": "management.product-role-brief.v1", "scope": "organization", "purpose": "Request an authoritative role brief from the active Chief of Staff" },
     { "name": "management.product-plan.review.v1", "scope": "organization", "purpose": "Submit the initial product and product-team recommendation to the Chief of Staff" },
     { "name": "management.product-escalation.v1", "scope": "organization", "purpose": "Route executive information gaps and decisions through the Chief of Staff" },

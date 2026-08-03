@@ -101,7 +101,7 @@ public sealed class ProductManagerProfileTests
             "src",
             "CSweet.Agent.SoftwareProductManager",
             "CSweet.Agent.SoftwareProductManager.csproj"));
-        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.8.0", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"3.0.0", project, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
@@ -1031,7 +1031,7 @@ What level of prototype fidelity are we aiming for?
                     return Task.FromResult(SentMessage(request) with { ChatTurnId = Guid.NewGuid() });
                 })
             .RegisterCapability<TeamRepositoryOptionsRequest, IReadOnlyList<TeamRepositoryOption>>(
-                GitRepositoryCapabilities.TeamOptions,
+                SourceControlCapabilities.TeamRepositoryOptions,
                 (_, _) => Task.FromResult<IReadOnlyList<TeamRepositoryOption>>([]));
         var context = runtime.CreateContext(
             organizationId.ToString("D"), productManagerInstallationId.ToString("D"));
