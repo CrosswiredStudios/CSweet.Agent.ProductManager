@@ -81,6 +81,8 @@ public sealed record GuardedArchitecturePublishRequest(
     public Guid AccountableOrganizationUserId { get; init; }
     public Guid DeveloperInstallationId { get; init; }
     public Guid QualityInstallationId { get; init; }
+    public IReadOnlyList<Guid> DeveloperInstallationIds { get; init; } = [];
+    public IReadOnlyList<Guid> QualityInstallationIds { get; init; } = [];
 }
 
 public sealed record ArchitecturePublishResponse(

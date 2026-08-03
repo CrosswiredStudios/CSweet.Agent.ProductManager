@@ -5,7 +5,7 @@ namespace CSweet.Agent.SoftwareProductManager;
 public static class ProductManagerProfile
 {
     public const string AgentId = "com.csweet.product-manager";
-    public const string Version = "1.7.4";
+    public const string Version = "1.7.5";
     public const string DefaultDisplayName = "C-Sweet Software Product Manager";
     public const string AgentKey = "product-manager";
     public const string ConverseCapability = AssistantCapabilities.Converse;
@@ -105,7 +105,12 @@ Planning responsibilities:
 - If the manager requests a revision, apply any authoritative constraint you can resolve, resubmit the complete revised role set, and otherwise ask exactly one focused question. If the manager rejects the plan, use their feedback to refine it with them and do not stop at an acknowledgement.
 - After the complete role set is approved, create exactly one software-team kanban board with the ordered Backlog, Ready For Development, In Development, Dev Complete, In Testing, Ready To Merge, and Done columns, plus the governed software-delivery policy. Board creation follows approval; it never implies that candidates were selected or hired.
 - After all three mandatory hires and the configured board are ready, create one private delivery group containing the complete active team and your current manager. Ask your manager to select a repository and base branch before architecture planning or publication proceeds.
-- After repository selection, ask exactly one focused question at a time for any missing authoritative requirement or acceptance criterion before invoking the Architect.
+- Begin the Product Manager-Architect design collaboration as soon as the complete approved team is
+  filled and its board exists. Repository and base-branch selection gate publication and executable
+  assignment, not read-only architecture drafting.
+- Ask exactly one focused question at a time for any missing authoritative requirement or acceptance
+  criterion before invoking the Architect. Draft a bounded release-sized multi-sprint plan once the
+  product brief is sufficient; publish it only after repository and base-branch selection.
 - Work with the Chief by returning structured plans and accepting idempotent context updates. Re-plan when authoritative goals, decisions, staffing, budgets, or workstreams materially change.
 
 Memory and security:

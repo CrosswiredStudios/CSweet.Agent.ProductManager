@@ -464,7 +464,7 @@ What level of prototype fidelity are we aiming for?
     }
 
     [Fact]
-    public async Task Coordination_QuestionsArchitectThenReconcilesDecisionReadyBoardTickets()
+    public async Task Coordination_QuestionsArchitectAndNeverCreatesGenericPlaceholderTickets()
     {
         var productManagerId = Guid.NewGuid();
         var productInstallationId = Guid.NewGuid();
@@ -537,11 +537,9 @@ What level of prototype fidelity are we aiming for?
                 ]),
             runtime.CreateContext(), CancellationToken.None);
 
-        Assert.Equal(AgentCoordinationDispositions.Completed, second.Disposition);
-        Assert.Equal(3, created.Count);
-        Assert.All(created, request => Assert.Equal(boardId, request.BoardId));
-        Assert.Equal(3, created.Select(x => x.IdempotencyKey).Distinct().Count());
-        Assert.Contains("DEMO-3", second.Content, StringComparison.Ordinal);
+        Assert.Equal(AgentCoordinationDispositions.Blocked, second.Disposition);
+        Assert.Empty(created);
+        Assert.Contains("planning", second.Content, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -905,6 +903,154 @@ What level of prototype fidelity are we aiming for?
         Assert.Contains("covers every planned role", messageRequest.Content, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(2, messageRequests.Count);
         Assert.Single(messageRequests.Select(request => request.IdempotencyKey).Distinct(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task FinalApprovedRoleFulfillmentStartsOneStableArchitectPlanningKickoff()
+    {
+        var organizationId = Guid.NewGuid();
+        var requestId = Guid.NewGuid();
+        var teamId = Guid.NewGuid();
+        var conversationId = Guid.NewGuid();
+        var productManagerId = Guid.NewGuid();
+        var productManagerInstallationId = Guid.NewGuid();
+        var managerId = Guid.NewGuid();
+        var architectId = Guid.NewGuid();
+        var architectInstallationId = Guid.NewGuid();
+        var developerId = Guid.NewGuid();
+        var developerInstallationId = Guid.NewGuid();
+        var qualityId = Guid.NewGuid();
+        var qualityInstallationId = Guid.NewGuid();
+        var boardId = Guid.NewGuid();
+        var roles = new[]
+        {
+            Role("architecture", "Software Architect", 1, "Now") with { ReportsToOrganizationUserId = productManagerId },
+            Role("development", "Software Developer", 2, "Now") with { ReportsToOrganizationUserId = productManagerId },
+            Role("quality", "Software QA", 3, "Now") with { ReportsToOrganizationUserId = productManagerId }
+        };
+        var response = new ResourceChangeRequestResponse(
+            requestId, organizationId, productManagerId, productManagerInstallationId, managerId,
+            conversationId, Guid.NewGuid(), "Ship the first customer release",
+            "Use the smallest complete software team.", 1, roles,
+            roles.Select(x => new ResourceChangeRoleDelta("Add", x, null)).ToList(),
+            ["The first release is intentionally bounded."], ["Preserve governed delivery."],
+            null, "Approved", "Delivered", null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)
+        {
+            TeamId = teamId,
+            TeamName = "Release Team"
+        };
+        var team = new AgentTeamContext(
+            teamId.ToString("D"), "release", "Release Team", 1,
+            productManagerId.ToString("D"), "Product Manager",
+            [
+                new AgentTeammate(productManagerId.ToString("D"), "Product Manager", "Agent", null, "Software Product Manager", "Self", "Active"),
+                new AgentTeammate(architectId.ToString("D"), "Architect", "Agent", null, "Software Architect", "Peer", "Active"),
+                new AgentTeammate(developerId.ToString("D"), "Developer", "Agent", null, "Software Developer", "Peer", "Active"),
+                new AgentTeammate(qualityId.ToString("D"), "QA", "Agent", null, "Software QA", "Peer", "Active")
+            ],
+            [
+                new TeamRoleCoverage("Software Architect", 1),
+                new TeamRoleCoverage("Software Developer", 1),
+                new TeamRoleCoverage("Software QA", 1)
+            ], 4, false);
+        var organization = new OrganizationSnapshotResponse(
+            organizationId, "Active",
+            [
+                new OrganizationPerson(productManagerId, "Product Manager", "Agent", null, managerId, productManagerInstallationId, true),
+                new OrganizationPerson(managerId, "Manager", "Human", null, null, null, true),
+                new OrganizationPerson(architectId, "Architect", "Agent", null, productManagerId, architectInstallationId, true),
+                new OrganizationPerson(developerId, "Developer", "Agent", null, productManagerId, developerInstallationId, true),
+                new OrganizationPerson(qualityId, "QA", "Agent", null, productManagerId, qualityInstallationId, true)
+            ], [], [], [], [], DateTimeOffset.UtcNow);
+        var columns = new[]
+        {
+            new WorkBoardColumn(Guid.NewGuid(), "Backlog", "ToDo", 0, "Disabled", null),
+            new WorkBoardColumn(Guid.NewGuid(), "Ready For Development", "ToDo", 1, "Disabled", null),
+            new WorkBoardColumn(Guid.NewGuid(), "In Development", "InProgress", 2, "Disabled", null),
+            new WorkBoardColumn(Guid.NewGuid(), "Dev Complete", "InProgress", 3, "Disabled", null),
+            new WorkBoardColumn(Guid.NewGuid(), "In Testing", "InProgress", 4, "Disabled", null),
+            new WorkBoardColumn(Guid.NewGuid(), "Ready To Merge", "InProgress", 5, "Disabled", null),
+            new WorkBoardColumn(Guid.NewGuid(), "Done", "Done", 6, "Disabled", null)
+        };
+        var board = new WorkBoardSummary(boardId, "Release Product Team", "Approved", false, false, 1, [])
+        {
+            TeamId = teamId,
+            ManagerOrganizationUserId = productManagerId
+        };
+        var messages = new List<CommunicationSendCapture>();
+        var createdChats = new List<CreateCommunicationChat>();
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
+                PlatformCapabilities.ResourceChangeRead,
+                (_, _) => Task.FromResult(new ResourceChangeReadResponse([response])))
+            .RegisterCapability<TeamRosterRequest, TeamRosterResponse>(
+                ProductManagerProfile.TeamRosterCapability,
+                (_, _) => Task.FromResult(new TeamRosterResponse(team)))
+            .RegisterCapability<object, OrganizationSnapshotResponse>(
+                PlatformCapabilities.OrganizationSnapshotRead,
+                (_, _) => Task.FromResult(organization))
+            .RegisterCapability<WorkBoardListRequest, IReadOnlyList<WorkBoardSummary>>(
+                WorkBoardCapabilities.Read,
+                (_, _) => Task.FromResult<IReadOnlyList<WorkBoardSummary>>([board]))
+            .RegisterCapability<WorkBoardReference, WorkBoardDetail>(
+                WorkItemCapabilities.Read,
+                (_, _) => Task.FromResult(new WorkBoardDetail(board, columns, [])))
+            .RegisterCapability<ConfigureSoftwareOrchestrationTemplateRequest, WorkOrchestrationPolicyRevision>(
+                WorkOrchestrationCapabilities.ConfigureSoftwareTemplate,
+                (request, _) => Task.FromResult(new WorkOrchestrationPolicyRevision(
+                    Guid.NewGuid(), Guid.NewGuid(), request.BoardId, 1, "Software delivery", "ready",
+                    request.MergeMode, new WorkOrchestrationConcurrencyLimits(100, 25, 10, 5, 1),
+                    [], [], true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)))
+            .RegisterCapability<object, CommunicationHub>(
+                CommunicationCapabilities.ChatRead,
+                (_, _) => Task.FromResult(new CommunicationHub(
+                    productManagerId, productManagerId, false, true, [])))
+            .RegisterCapability<CreateCommunicationChat, CommunicationAction>(
+                CommunicationCapabilities.ChatCreate,
+                (request, _) =>
+                {
+                    createdChats.Add(request);
+                    var participants = request.ParticipantOrganizationUserIds.Select(id =>
+                        new CommunicationParticipant(
+                            id,
+                            id == architectId ? "Architect" : "Participant",
+                            id == managerId ? "Human" : "Agent",
+                            id == architectId ? "Software Architect" : "Team member")).ToList();
+                    return Task.FromResult(new CommunicationAction(
+                        true, null, "Created",
+                        new CommunicationChat(Guid.NewGuid(), request.Title ?? "Direct", request.Description,
+                            request.IsDirect, request.IsPrivate, false, true, DateTimeOffset.UtcNow,
+                            participants, null, null, 0)));
+                })
+            .RegisterCapability<CommunicationSendCapture, CommunicationMessage>(
+                CommunicationCapabilities.MessageSend,
+                (request, _) =>
+                {
+                    messages.Add(request);
+                    return Task.FromResult(SentMessage(request) with { ChatTurnId = Guid.NewGuid() });
+                })
+            .RegisterCapability<TeamRepositoryOptionsRequest, IReadOnlyList<TeamRepositoryOption>>(
+                GitRepositoryCapabilities.TeamOptions,
+                (_, _) => Task.FromResult<IReadOnlyList<TeamRepositoryOption>>([]));
+        var context = runtime.CreateContext(
+            organizationId.ToString("D"), productManagerInstallationId.ToString("D"));
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+        var fulfilled = RecommendationFulfilled(organizationId, requestId);
+
+        await agent.HandleHiringRecommendationFulfilledAsync(fulfilled, context, CancellationToken.None);
+        await agent.HandleHiringRecommendationFulfilledAsync(fulfilled, context, CancellationToken.None);
+
+        var kickoffKeys = messages
+            .Where(x => x.IdempotencyKey == $"software-team-architect-kickoff:{requestId:N}")
+            .ToList();
+        Assert.Equal(2, kickoffKeys.Count);
+        Assert.Single(kickoffKeys.Select(x => x.IdempotencyKey).Distinct());
+        Assert.All(kickoffKeys, x => Assert.Contains("<software_team_planning_kickoff>", x.Content, StringComparison.Ordinal));
+        Assert.Contains(messages, x => x.IdempotencyKey == $"software-team-kickoff:{requestId:N}");
+        Assert.Contains(messages, x => x.Content.Contains("planning has started", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(createdChats, x => x.IsDirect && x.ParticipantOrganizationUserIds.SequenceEqual([architectId]));
     }
 
     [Fact]
