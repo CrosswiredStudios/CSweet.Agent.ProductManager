@@ -73,6 +73,7 @@ public sealed class ProductManagerProfileTests
             [
                 ProductManagerProfile.OnboardedEvent,
                 ProductManagerProfile.UserMessageReceivedEvent,
+                AgentCoordinationEvents.TurnRequested,
                 ManagementEvents.ReviewDue,
                 ManagementEvents.ResourceChangeDecided,
                 ProductManagerProfile.RecommendationFulfilledEvent
@@ -99,7 +100,7 @@ public sealed class ProductManagerProfileTests
             "src",
             "CSweet.Agent.SoftwareProductManager",
             "CSweet.Agent.SoftwareProductManager.csproj"));
-        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.7.0", project, StringComparison.Ordinal);
+        Assert.Contains("CSweet.Agent.SDK\" Version=\"2.8.0", project, StringComparison.Ordinal);
         Assert.Contains("<ProjectReference", project, StringComparison.Ordinal);
         Assert.Contains($"<Version>{ProductManagerProfile.Version}</Version>", project, StringComparison.Ordinal);
     }
@@ -285,7 +286,7 @@ What level of prototype fidelity are we aiming for?
         var onboardingEventId = Guid.NewGuid();
         var workItemId = Guid.NewGuid();
         var generatedOpening = "I’m managing the playable browser prototype for classic game fans. I’m now shaping the smallest team and will submit it for approval.";
-        SendCommunicationMessageRequest? sentMessage = null;
+        CommunicationSendCapture? sentMessage = null;
         CompleteAgentOnboardingRequest? completionRequest = null;
         var profile = new BusinessProfileResponse(
             organizationId,
@@ -338,12 +339,12 @@ What level of prototype fidelity are we aiming for?
             .RegisterCapability<JsonElement, OrganizationSnapshotResponse>(
                 PlatformCapabilities.OrganizationSnapshotRead,
                 (_, _) => Task.FromResult(organization))
-            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            .RegisterCapability<CommunicationSendCapture, CommunicationMessage>(
                 ProductManagerProfile.SendCommunicationMessageCapability,
                 (request, _) =>
                 {
                     sentMessage = request;
-                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                    return Task.FromResult(SentMessage(request));
                 })
             .RegisterCapability<CompleteAgentOnboardingRequest, JsonElement>(
                 AgentLifecycleCapabilities.CompleteOnboarding,
@@ -463,6 +464,87 @@ What level of prototype fidelity are we aiming for?
     }
 
     [Fact]
+    public async Task Coordination_QuestionsArchitectThenReconcilesDecisionReadyBoardTickets()
+    {
+        var productManagerId = Guid.NewGuid();
+        var productInstallationId = Guid.NewGuid();
+        var architectId = Guid.NewGuid();
+        var architectInstallationId = Guid.NewGuid();
+        var boardId = Guid.NewGuid();
+        var columnId = Guid.NewGuid();
+        var created = new List<CreateWorkItemRequest>();
+        var runtime = new AgentTestRuntime()
+            .RegisterCapability<WorkBoardListRequest, IReadOnlyList<WorkBoardSummary>>(
+                WorkBoardCapabilities.Read,
+                (_, _) => Task.FromResult<IReadOnlyList<WorkBoardSummary>>(
+                [
+                    new WorkBoardSummary(boardId, "Demo delivery", "Approved board", false, false, 1, [])
+                    {
+                        ManagerOrganizationUserId = productManagerId
+                    }
+                ]))
+            .RegisterCapability<WorkBoardReference, WorkBoardDetail>(
+                WorkItemCapabilities.Read,
+                (_, _) => Task.FromResult(new WorkBoardDetail(
+                    new WorkBoardSummary(boardId, "Demo delivery", "Approved board", false, false, 1, []),
+                    [new WorkBoardColumn(columnId, "Ready For Development", "ToDo", 1, "Pull", null)],
+                    [])))
+            .RegisterCapability<CreateWorkItemRequest, WorkItem>(
+                WorkItemCapabilities.Create,
+                (request, _) =>
+                {
+                    created.Add(request);
+                    return Task.FromResult(new WorkItem(
+                        Guid.NewGuid(), columnId, null, null, request.Kind, request.Title,
+                        request.Description ?? string.Empty, "Ready", request.Priority,
+                        null, created.Count, 1, null)
+                    {
+                        Identifier = $"DEMO-{created.Count}"
+                    });
+                });
+        var agent = new ProductManagerAgent(
+            NullLogger<ProductManagerAgent>.Instance,
+            new ProductManagerOrchestrator(NullLogger<ProductManagerOrchestrator>.Instance));
+        var self = new AgentCoordinationParticipant(
+            productManagerId, productInstallationId, "Product Manager", "Product Manager");
+        var architect = new AgentCoordinationParticipant(
+            architectId, architectInstallationId, "Architect", "Software Architect");
+        var now = DateTimeOffset.UtcNow;
+        var initial = new AgentCoordinationTurn(
+            Guid.NewGuid(), 0, architectId, AgentCoordinationDispositions.Continue,
+            "Populate the kanban board for the demo.", now);
+
+        var first = await agent.HandleCoordinationTurnAsync(
+            new AgentCoordinationTurnRequest(
+                Guid.NewGuid(), 1, 1, "Demo delivery", "Complete the demo",
+                ["The demo passes acceptance tests."], self, architect, false, [initial]),
+            runtime.CreateContext(), CancellationToken.None);
+        Assert.Equal(AgentCoordinationDispositions.Continue, first.Disposition);
+        Assert.Contains("dependency order", first.Content, StringComparison.OrdinalIgnoreCase);
+
+        var sessionId = Guid.NewGuid();
+        var second = await agent.HandleCoordinationTurnAsync(
+            new AgentCoordinationTurnRequest(
+                sessionId, 3, 3, "Demo delivery", "Complete the demo",
+                ["The demo passes acceptance tests."], self, architect, false,
+                [
+                    initial,
+                    new AgentCoordinationTurn(Guid.NewGuid(), 1, productManagerId,
+                        AgentCoordinationDispositions.Continue, first.Content, now),
+                    new AgentCoordinationTurn(Guid.NewGuid(), 2, architectId,
+                        AgentCoordinationDispositions.Continue,
+                        "Build the API contract, persistence path, rollback, and fault tests in that order.", now)
+                ]),
+            runtime.CreateContext(), CancellationToken.None);
+
+        Assert.Equal(AgentCoordinationDispositions.Completed, second.Disposition);
+        Assert.Equal(3, created.Count);
+        Assert.All(created, request => Assert.Equal(boardId, request.BoardId));
+        Assert.Equal(3, created.Select(x => x.IdempotencyKey).Distinct().Count());
+        Assert.Contains("DEMO-3", second.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Revision_SequencesImmediateRolesToTheAuthoritativeConcurrentHireCap()
     {
         var roles = new[]
@@ -551,7 +633,7 @@ What level of prototype fidelity are we aiming for?
         var requestId = Guid.NewGuid();
         var conversationId = Guid.NewGuid();
         var boardMutationCount = 0;
-        SendCommunicationMessageRequest? messageRequest = null;
+        CommunicationSendCapture? messageRequest = null;
         var response = ResourceChange(
             requestId,
             organizationId,
@@ -596,12 +678,12 @@ What level of prototype fidelity are we aiming for?
                         new WorkOrchestrationConcurrencyLimits(100, 25, 10, 5, 1),
                         [], [], true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow));
                 })
-            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            .RegisterCapability<CommunicationSendCapture, CommunicationMessage>(
                 ProductManagerProfile.SendCommunicationMessageCapability,
                 (request, _) =>
                 {
                     messageRequest = request;
-                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                    return Task.FromResult(SentMessage(request));
                 });
         var context = runtime.CreateContext(
             organizationId.ToString("D"),
@@ -674,9 +756,9 @@ What level of prototype fidelity are we aiming for?
                     revisedProposal = request;
                     return Task.FromResult(response);
                 })
-            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            .RegisterCapability<CommunicationSendCapture, CommunicationMessage>(
                 ProductManagerProfile.SendCommunicationMessageCapability,
-                (_, _) => Task.FromResult(new CommunicationHubActionResponse(true, null, "sent")));
+                (request, _) => Task.FromResult(SentMessage(request)));
         var context = runtime.CreateContext(
             organizationId.ToString("D"),
             response.RequesterInstallationId.ToString("D"));
@@ -719,17 +801,17 @@ What level of prototype fidelity are we aiming for?
         {
             DecisionComment = "The proposed team is too broad."
         };
-        SendCommunicationMessageRequest? messageRequest = null;
+        CommunicationSendCapture? messageRequest = null;
         var runtime = new AgentTestRuntime()
             .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
                 PlatformCapabilities.ResourceChangeRead,
                 (_, _) => Task.FromResult(new ResourceChangeReadResponse([response])))
-            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            .RegisterCapability<CommunicationSendCapture, CommunicationMessage>(
                 ProductManagerProfile.SendCommunicationMessageCapability,
                 (request, _) =>
                 {
                     messageRequest = request;
-                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                    return Task.FromResult(SentMessage(request));
                 });
         var context = runtime.CreateContext(
             organizationId.ToString("D"),
@@ -771,8 +853,8 @@ What level of prototype fidelity are we aiming for?
             Guid.NewGuid(),
             "Deliver the MVP",
             "Approved");
-        SendCommunicationMessageRequest? messageRequest = null;
-        var messageRequests = new List<SendCommunicationMessageRequest>();
+        CommunicationSendCapture? messageRequest = null;
+        var messageRequests = new List<CommunicationSendCapture>();
         var runtime = new AgentTestRuntime()
             .RegisterCapability<ResourceChangeReadRequest, ResourceChangeReadResponse>(
                 PlatformCapabilities.ResourceChangeRead,
@@ -791,13 +873,13 @@ What level of prototype fidelity are we aiming for?
                     [new TeamRoleCoverage("Product Engineer", 1)],
                     1,
                     false))))
-            .RegisterCapability<SendCommunicationMessageRequest, CommunicationHubActionResponse>(
+            .RegisterCapability<CommunicationSendCapture, CommunicationMessage>(
                 ProductManagerProfile.SendCommunicationMessageCapability,
                 (request, _) =>
                 {
                     messageRequest = request;
                     messageRequests.Add(request);
-                    return Task.FromResult(new CommunicationHubActionResponse(true, null, "sent"));
+                    return Task.FromResult(SentMessage(request));
                 });
         var context = runtime.CreateContext(
             organizationId.ToString("D"),
@@ -1111,6 +1193,22 @@ What level of prototype fidelity are we aiming for?
                 occurredAt)),
             occurredAt);
     }
+
+    private static CommunicationMessage SentMessage(CommunicationSendCapture request) =>
+        new(
+            Guid.NewGuid(),
+            1,
+            request.ChatId,
+            null,
+            ProductManagerProfile.DefaultDisplayName,
+            "Agent",
+            request.Content,
+            DateTimeOffset.UtcNow);
+
+    private sealed record CommunicationSendCapture(
+        Guid ChatId,
+        string Content,
+        string? IdempotencyKey);
 
     private sealed class TestLlmClientFactory(IChatClient chatClient) : IAgentLlmClientFactory
     {

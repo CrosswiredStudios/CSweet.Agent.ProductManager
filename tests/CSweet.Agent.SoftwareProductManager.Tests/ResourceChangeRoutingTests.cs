@@ -280,28 +280,31 @@ public sealed class ResourceChangeRoutingTests
             var sourceMessageId = Guid.NewGuid();
 
             var runtime = new AgentTestRuntime()
-                .RegisterCapability<ReadCommunicationChatRequest, ReadCommunicationChatResponse>(
+                .RegisterCapability<object, CommunicationMessages>(
                     ProductManagerProfile.ReadCommunicationCapability,
-                    (_, _) => Task.FromResult(new ReadCommunicationChatResponse(
+                    (_, _) => Task.FromResult(new CommunicationMessages(
                     [
-                        new ReadCommunicationMessageResponse(
+                        new CommunicationMessage(
                             sourceMessageId,
+                            1,
                             SourceConversationId,
                             sourceSenderId,
+                            "Manager",
+                            managerType,
                             "Finalize the product team.",
                             DateTimeOffset.UtcNow,
                             includeTranscriptTurnId ? SourceTurnId : null)
                     ])))
-                .RegisterCapability<CreateCommunicationChatRequest, CommunicationHubActionResponse>(
+                .RegisterCapability<CreateCommunicationChat, CommunicationAction>(
                     ProductManagerProfile.CreateCommunicationCapability,
                     (_, _) =>
                     {
                         ManagerChatCreateCount++;
-                        return Task.FromResult(new CommunicationHubActionResponse(
+                        return Task.FromResult(new CommunicationAction(
                             true,
                             null,
                             "Direct chat already exists.",
-                            new CommunicationChatResponse(
+                            new CommunicationChat(
                                 ManagerConversationId,
                                 string.Empty,
                                 null,

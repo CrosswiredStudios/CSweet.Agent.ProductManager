@@ -2,10 +2,10 @@
 
 This document is the human-readable grant catalog for the C-Sweet Software Product Manager agent. The source
 of truth for installation authorization remains [`csweet-plugin.json`](csweet-plugin.json). This
-catalog was last verified against package version `1.7.3` and manifest protocol `2.0`.
+catalog was last verified against package version `1.7.4` and manifest protocol `2.0`.
 
 Serialized capability names are sourced from the authoritative `CapabilityCatalog` in
-`CSweet.Agent.SDK` 2.7.0; manifest-audit tests reject names missing from that catalog.
+`CSweet.Agent.SDK` 2.8.0; manifest-audit tests reject names missing from that catalog.
 
 ## How to read this catalog
 
@@ -58,6 +58,10 @@ policy at runtime.
 | `communication.chat.modify.v1` | organization | Reconcile the private software-team delivery chat and keep the manager included. |
 | `communication.message.send.v1` | organization | Send an idempotent request for role direction and product information to that manager. |
 | `communication.chat.read.v1` | organization | Verify and read the current manager conversation before proposing a team change. |
+| `communication.coordination.start.v1` | organization | Start a bounded collaboration with an eligible same-organization agent. |
+| `communication.coordination.respond.v1` | organization | Submit one revision-checked Continue, Completed, or Blocked disposition. |
+| `communication.coordination.read.v1` | organization | Read a collaboration session in which this Product Manager participates. |
+| `communication.coordination.cancel.v1` | organization | Stop a collaboration in which this Product Manager participates. |
 | `agent.onboarding.complete.v1` | organization | Acknowledge this installation's durable onboarding event after its initial manager message is complete. |
 | `platform.management.resource-change.propose.v1` | organization | Submit one auditable, atomic desired-team snapshot to the current manager. |
 | `platform.management.resource-change.read.v1` | organization | Read the Software Product Manager's pending and decided team snapshots. |
@@ -65,6 +69,7 @@ policy at runtime.
 | `work.board.read` | team | Read the approved team board and its workflow. |
 | `work.board.columns.configure` | team | Configure the seven software delivery columns. |
 | `work.item.read` | team | Read published tickets before revision-safe readiness moves. |
+| `work.item.create` | team | Create idempotent decision-ready planning tickets on the approved board. |
 | `work.item.move` | team | Move first-sprint Stories and Tasks to Ready For Development. |
 | `work.orchestration.software-template.configure` | team | Publish the bounded software delivery workflow. |
 | `git.repository.team-options.v1` | team | List safe repository choices shared by Developer and QA. |

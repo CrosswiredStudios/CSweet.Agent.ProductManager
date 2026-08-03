@@ -3,7 +3,7 @@
   "kind": "agent",
   "id": "com.csweet.product-manager",
   "name": "C-Sweet Software Product Manager",
-  "version": "1.7.3",
+  "version": "1.7.4",
   "publisher": {
     "id": "com.csweet",
     "name": "C-Sweet"
@@ -531,12 +531,17 @@
     { "name": "communication.chat.create.v1", "scope": "organization", "purpose": "Open or reuse a direct conversation with the Software Product Manager's managing employee" },
     { "name": "communication.chat.modify.v1", "scope": "organization", "purpose": "Reconcile the private software-team delivery chat as team membership changes" },
     { "name": "communication.message.send.v1", "scope": "organization", "purpose": "Coordinate product discovery, plan decisions, and revisions with the Software Product Manager's managing employee" },
+    { "name": "communication.coordination.start.v1", "scope": "organization", "purpose": "Start a bounded durable collaboration with an eligible organization agent" },
+    { "name": "communication.coordination.respond.v1", "scope": "organization", "purpose": "Submit one structured product collaboration disposition" },
+    { "name": "communication.coordination.read.v1", "scope": "organization", "purpose": "Read a collaboration session in which this Product Manager participates" },
+    { "name": "communication.coordination.cancel.v1", "scope": "organization", "purpose": "Stop a collaboration in which this Product Manager participates" },
     { "name": "platform.management.resource-change.propose.v1", "scope": "organization", "purpose": "Propose one atomic desired-team snapshot to the current manager" },
     { "name": "platform.management.resource-change.read.v1", "scope": "organization", "purpose": "Read the Software Product Manager's resource-change requests and decisions" },
     { "name": "work.board.create", "scope": "team", "purpose": "Create one software-team kanban board after manager approval" },
     { "name": "work.board.read", "scope": "team", "purpose": "Read the approved software team's board and exact workflow columns" },
     { "name": "work.board.columns.configure", "scope": "team", "purpose": "Configure the approved software team's seven-column workflow" },
     { "name": "work.item.read", "scope": "team", "purpose": "Read published sprint tickets before revision-safe readiness moves" },
+    { "name": "work.item.create", "scope": "team", "purpose": "Create idempotent decision-ready planning tickets during approved agent collaboration" },
     { "name": "work.item.move", "scope": "team", "purpose": "Move the first planned sprint's Stories and Tasks to Ready For Development" },
     { "name": "work.orchestration.software-template.configure", "scope": "team", "purpose": "Publish the bounded software delivery policy for the approved team board" },
     { "name": "git.repository.team-options.v1", "scope": "team", "purpose": "Present only repositories granted to both the Software Developer and Software QA" },
@@ -550,6 +555,7 @@
     "subscribes": [
       "com.csweet.agent.onboarded.v1",
       "com.csweet.user.message.received.v1",
+      "com.csweet.agent.coordination.turn-requested.v1",
       "com.csweet.management.review.due.v1",
       "com.csweet.management.resource-change.decided.v1",
       "com.csweet.hiring-recommendation.fulfilled.v1"
