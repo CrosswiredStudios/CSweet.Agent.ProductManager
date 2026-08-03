@@ -90,6 +90,7 @@ public sealed class ProductManagerProfileTests
                 field.GetProperty("description").GetString())));
         var manifestTone = root.GetProperty("configuration").EnumerateArray()
             .Single(field => field.GetProperty("key").GetString() == "responseTone");
+        Assert.Equal("concise", manifestTone.GetProperty("defaultValue").GetString());
         Assert.Equal(
             ["concise", "balanced", "detailed"],
             manifestTone.GetProperty("options").EnumerateArray()

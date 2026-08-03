@@ -585,6 +585,7 @@
       "required": true,
       "secret": false,
       "description": "Controls how much detail the employee uses in responses.",
+      "defaultValue": "concise",
       "options": [
         { "value": "concise", "label": "Concise" },
         { "value": "balanced", "label": "Balanced" },
